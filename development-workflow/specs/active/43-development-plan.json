@@ -1,0 +1,543 @@
+[
+  {
+    "dependsOn": [],
+    "description": "Create the greenfield ASP.NET Core solution under app/todoapp-webapi, pin the supported .NET LTS SDK and dependency versions, run one Compose-managed Postgres with a retained volume and healthcheck, configure TODO_DB_CONNECTION with a documented local-only default, and bootstrap the tasks schema before database routes are served.",
+    "id": 1,
+    "implementationContext": {
+      "acceptance": [
+        "A fresh Postgres instance creates the tasks table automatically and the API can list an empty database with HTTP 200 without manual schema setup.",
+        "The SDK, Postgres image, ASP.NET Core, Npgsql, xUnit, test SDK, and ASP.NET test-host versions are pinned and documented; no external credential is hardcoded.",
+        "Setting TODO_DB_CONNECTION changes the database target, while the absent-variable default is limited to local Compose use."
+      ],
+      "constraints": [
+        "Target is app/todoapp-webapi; Compose contains only Postgres, its persistent volume, and its healthcheck.",
+        "Use one singleton NpgsqlDataSource or equivalent shared connection factory; do not add EF Core, Dapper, a generic repository, or a generic service layer.",
+        "The initial schema may use CREATE TABLE IF NOT EXISTS; schema evolution after this baseline requires a new explicit migration decision."
+      ],
+      "decisions": [
+        "ADR-002: Use ASP.NET Core on a supported pinned .NET LTS version.",
+        "ADR-003: Use direct Npgsql with parameterized commands and a Postgres-generated positive bigint id.",
+        "ADR-004: Use one local Postgres service with a retained volume and healthcheck.",
+        "ADR-005: Apply the initial schema idempotently at API startup before serving database-dependent routes.",
+        "ADR-009: Read TODO_DB_CONNECTION and provide only a documented local default."
+      ],
+      "files": [
+        "app/todoapp-webapi/TodoApp.sln",
+        "app/todoapp-webapi/global.json",
+        "app/todoapp-webapi/Directory.Build.props",
+        "app/todoapp-webapi/docker-compose.yml",
+        "app/todoapp-webapi/src/TodoApp.Api/Program.cs",
+        "app/todoapp-webapi/src/TodoApp.Api/Infrastructure/Database/SchemaBootstrap.cs",
+        "app/todoapp-webapi/src/TodoApp.Api/Domain/TaskStatus.cs",
+        "app/todoapp-webapi/README.md"
+      ],
+      "requirements": [
+        "RF-007: Automatically create the required table before first use.",
+        "RF-008: Read TODO_DB_CONNECTION and use a local default only when absent.",
+        "RNF-005: Start verification only after a positive Postgres healthcheck.",
+        "RNF-011: Document supported versions and a reproducible local environment.",
+        "SEC-002: Externalize the connection and never hardcode external credentials."
+      ]
+    },
+    "priority": 1,
+    "references": [
+      "RF-007",
+      "RF-008",
+      "RNF-005",
+      "RNF-011",
+      "SEC-002",
+      "ADR-002",
+      "ADR-003",
+      "ADR-004",
+      "ADR-005",
+      "ADR-009"
+    ],
+    "status": "pending",
+    "title": "Foundation: pinned ASP.NET Core, Postgres, configuration, and schema bootstrap"
+  },
+  {
+    "dependsOn": [
+      1
+    ],
+    "description": "Implement the minimal shared kernel and HTTP error boundary: task/status representation, shared data-source registration, canonical JSON serialization, Problem Details, sanitized database-failure mapping, and local-only boundary documentation. Keep all endpoint-specific validation, SQL, and mapping in feature folders.",
+    "id": 2,
+    "implementationContext": {
+      "acceptance": [
+        "Client errors use application/problem+json with type, title, status, detail, and instance; dependency failures use status 503.",
+        "A database failure exposes none of the connection string, credentials, internal host, stack trace, or driver details in the response or headers.",
+        "The public task representation exposes only id, titulo, and status, and status values are exactly pendente or concluida."
+      ],
+      "constraints": [
+        "Program.cs is composition only; feature rules and SQL remain in their owning slices.",
+        "Never copy raw exceptions, SQL, connection strings, or driver messages into HTTP responses or logs.",
+        "Do not introduce identity, authentication, authorization, frontend, external exposure, or regulated-data claims."
+      ],
+      "decisions": [
+        "ADR-001: Organize behavior by vertical slice and keep shared code genuinely common.",
+        "ADR-006: Restrict the shared kernel to task/status, data-source setup, and common errors.",
+        "ADR-010: Use canonical JSON fields and states, Problem Details, and 503 for database unavailability."
+      ],
+      "files": [
+        "app/todoapp-webapi/src/TodoApp.Api/Program.cs",
+        "app/todoapp-webapi/src/TodoApp.Api/Domain/Task.cs",
+        "app/todoapp-webapi/src/TodoApp.Api/Domain/TaskStatus.cs",
+        "app/todoapp-webapi/src/TodoApp.Api/Infrastructure/Errors/ProblemDetailsMapper.cs",
+        "app/todoapp-webapi/src/TodoApp.Api/Infrastructure/Database/DataSourceRegistration.cs",
+        "app/todoapp-webapi/README.md"
+      ],
+      "requirements": [
+        "RNF-009: Shared code contains only the entity/status, connection/data source, and common errors.",
+        "SEC-001: Sanitize dependency failures and omit internal details.",
+        "SEC-004: Document the unauthenticated, local-only, non-production boundary.",
+        "SEC-005: Do not log titles or request payloads by default."
+      ]
+    },
+    "priority": 2,
+    "references": [
+      "RNF-009",
+      "SEC-001",
+      "SEC-004",
+      "SEC-005",
+      "ADR-001",
+      "ADR-006",
+      "ADR-010"
+    ],
+    "status": "pending",
+    "title": "Shared kernel and sanitized HTTP error boundary"
+  },
+  {
+    "dependsOn": [
+      1,
+      2
+    ],
+    "description": "Implement the AddTask vertical slice for POST /tasks. Parse titulo, trim and validate it before mutation, insert a pending task with parameterized Npgsql SQL, map the persisted row, return 201 with Location, and cover pure rules plus real HTTP/Postgres behavior.",
+    "id": 3,
+    "implementationContext": {
+      "acceptance": [
+        "POST /tasks with a valid title returns 201, a Location header, id, normalized titulo, and status pendente, and creates exactly one row.",
+        "Missing, empty, or whitespace-only titulo returns 400 Problem Details and creates no row.",
+        "Postgres generates a distinct positive id and leading/trailing whitespace is never persisted."
+      ],
+      "constraints": [
+        "The slice owns its request/response types, validation, INSERT command, parameters, and row mapping.",
+        "Validation and normalization finish before a mutable database command is opened; use long for public id and cancellation-aware async calls.",
+        "Expose only id, titulo, and status; no uniqueness, maximum-length, authentication, or frontend behavior is added."
+      ],
+      "decisions": [
+        "ADR-001: Keep HTTP, rules, SQL, and mapping co-located in the AddTask slice.",
+        "ADR-003: Use direct parameterized Npgsql rather than an ORM or repository.",
+        "ADR-010: Return the canonical task JSON and Problem Details contract."
+      ],
+      "files": [
+        "app/todoapp-webapi/src/TodoApp.Api/Features/AddTask/AddTaskEndpoint.cs",
+        "app/todoapp-webapi/src/TodoApp.Api/Features/AddTask/AddTaskRules.cs",
+        "app/todoapp-webapi/src/TodoApp.Api/Features/AddTask/AddTaskSql.cs",
+        "app/todoapp-webapi/tests/TodoApp.UnitTests/Features/AddTaskTests.cs",
+        "app/todoapp-webapi/tests/TodoApp.IntegrationTests/Features/AddTaskTests.cs"
+      ],
+      "requirements": [
+        "RF-001: Create and persist a task through POST /tasks with 201 and Location.",
+        "RN-001: Require a non-empty trimmed title.",
+        "RN-002: New tasks start as pendente.",
+        "RN-003: Use a distinct increasing positive Postgres-generated id.",
+        "RN-009: Reject invalid titles atomically before mutation.",
+        "SEC-003: Validate before mutation and parameterize every database input."
+      ]
+    },
+    "priority": 3,
+    "references": [
+      "RF-001",
+      "RN-001",
+      "RN-002",
+      "RN-003",
+      "RN-009",
+      "RNF-001",
+      "RNF-002",
+      "RNF-008",
+      "SEC-003",
+      "ADR-001",
+      "ADR-003",
+      "ADR-010"
+    ],
+    "status": "pending",
+    "title": "AddTask: create normalized pending tasks"
+  },
+  {
+    "dependsOn": [
+      1,
+      2
+    ],
+    "description": "Implement the ListTasks vertical slice for GET /tasks and its optional status filter. Validate the filter before querying, select explicit public fields with parameterized SQL, order by ascending id, return [] for an empty database, and test both pure filtering and real HTTP/Postgres queries.",
+    "id": 4,
+    "implementationContext": {
+      "acceptance": [
+        "GET /tasks returns 200 with an array containing only id, titulo, and status, ordered by ascending id; an empty database returns [].",
+        "status=pendente and status=concluida each return only the requested state, while omitting status returns all tasks.",
+        "Any status outside the two-value domain returns 400 Problem Details with no data array and causes no mutation."
+      ],
+      "constraints": [
+        "The slice owns filter parsing, SELECT SQL, status parameterization, ordering, and row mapping.",
+        "Use shared status values but keep filter-specific rules in ListTasks; use cancellation-aware async database calls.",
+        "No pagination, performance, or extra query abstraction is introduced."
+      ],
+      "decisions": [
+        "ADR-001: Keep listing and filtering in one cohesive vertical slice.",
+        "ADR-003: Use direct parameterized Npgsql SQL and explicit mapping.",
+        "ADR-010: Keep the canonical array and Problem Details contract stable."
+      ],
+      "files": [
+        "app/todoapp-webapi/src/TodoApp.Api/Features/ListTasks/ListTasksEndpoint.cs",
+        "app/todoapp-webapi/src/TodoApp.Api/Features/ListTasks/ListTasksRules.cs",
+        "app/todoapp-webapi/src/TodoApp.Api/Features/ListTasks/ListTasksSql.cs",
+        "app/todoapp-webapi/tests/TodoApp.UnitTests/Features/ListTasksTests.cs",
+        "app/todoapp-webapi/tests/TodoApp.IntegrationTests/Features/ListTasksTests.cs"
+      ],
+      "requirements": [
+        "RF-002: List all tasks with 200 and ascending id ordering.",
+        "RF-003: Filter by pendente or concluida and reject an invalid filter.",
+        "RN-004: Keep status within the two-value domain.",
+        "RN-008: Invalid filters return 400 without task data.",
+        "SEC-003: Validate request input before database work and parameterize values."
+      ]
+    },
+    "priority": 4,
+    "references": [
+      "RF-002",
+      "RF-003",
+      "RN-004",
+      "RN-008",
+      "RNF-001",
+      "RNF-002",
+      "RNF-008",
+      "SEC-003",
+      "ADR-001",
+      "ADR-003",
+      "ADR-010"
+    ],
+    "status": "pending",
+    "title": "ListTasks: ordered listing and status filtering"
+  },
+  {
+    "dependsOn": [
+      1,
+      2
+    ],
+    "description": "Implement the CompleteTask vertical slice for PATCH /tasks/{id}/complete. Parse a positive id, execute a parameterized idempotent completion update, return the resulting task with status concluida, distinguish a missing row as 404, and test repeated completion without duplication.",
+    "id": 5,
+    "implementationContext": {
+      "acceptance": [
+        "Completing an existing pending task returns 200 with status concluida and persists the state.",
+        "Repeating completion on the same task returns 200 with the same task and makes no duplicate row.",
+        "A nonexistent id returns 404 Problem Details and leaves every task unchanged."
+      ],
+      "constraints": [
+        "The slice owns id parsing, UPDATE SQL, affected-row handling, and explicit task mapping.",
+        "Use a parameterized long id, await/await using, and the request cancellation token; do not add reopening or concurrency semantics.",
+        "A third status value must never be produced."
+      ],
+      "decisions": [
+        "ADR-001: Keep completion behavior and SQL in its own vertical slice.",
+        "ADR-003: Use direct parameterized Npgsql commands.",
+        "ADR-010: Use 200 for idempotent success and Problem Details for 404."
+      ],
+      "files": [
+        "app/todoapp-webapi/src/TodoApp.Api/Features/CompleteTask/CompleteTaskEndpoint.cs",
+        "app/todoapp-webapi/src/TodoApp.Api/Features/CompleteTask/CompleteTaskSql.cs",
+        "app/todoapp-webapi/tests/TodoApp.UnitTests/Features/CompleteTaskTests.cs",
+        "app/todoapp-webapi/tests/TodoApp.IntegrationTests/Features/CompleteTaskTests.cs"
+      ],
+      "requirements": [
+        "RF-004: Complete a task through PATCH /tasks/{id}/complete.",
+        "RN-004: Persist only pendente or concluida.",
+        "RN-005: Completion is idempotent.",
+        "RN-007: Missing ids return 404 with no change.",
+        "SEC-003: Bind the id as a parameter and avoid unintended mutation."
+      ]
+    },
+    "priority": 5,
+    "references": [
+      "RF-004",
+      "RN-004",
+      "RN-005",
+      "RN-007",
+      "RNF-001",
+      "RNF-002",
+      "RNF-008",
+      "SEC-003",
+      "ADR-001",
+      "ADR-003",
+      "ADR-010"
+    ],
+    "status": "pending",
+    "title": "CompleteTask: idempotent state transition"
+  },
+  {
+    "dependsOn": [
+      1,
+      2
+    ],
+    "description": "Implement the EditTask vertical slice for PUT /tasks/{id}. Trim and validate titulo before mutation, update only the title with parameterized SQL, return the updated task while preserving its current status, distinguish invalid input from a missing id, and cover pending and completed tasks.",
+    "id": 6,
+    "implementationContext": {
+      "acceptance": [
+        "PUT /tasks/{id} with a valid title returns 200 and persists the trimmed title.",
+        "Editing a pending or completed task preserves its existing status.",
+        "A missing, empty, or whitespace-only title returns 400 before mutation; a nonexistent id returns 404 and the previous data remains unchanged."
+      ],
+      "constraints": [
+        "The slice owns title validation, UPDATE SQL, affected-row handling, and row mapping.",
+        "Use long ids and parameterized values, validate before opening a mutable command, and use cancellation-aware async operations.",
+        "Do not add title uniqueness, maximum length, version history, or strong concurrency behavior."
+      ],
+      "decisions": [
+        "ADR-001: Keep title-edit rules and data access in the EditTask slice.",
+        "ADR-003: Use direct parameterized Npgsql SQL.",
+        "ADR-010: Return canonical task JSON and Problem Details for 400/404."
+      ],
+      "files": [
+        "app/todoapp-webapi/src/TodoApp.Api/Features/EditTask/EditTaskEndpoint.cs",
+        "app/todoapp-webapi/src/TodoApp.Api/Features/EditTask/EditTaskRules.cs",
+        "app/todoapp-webapi/src/TodoApp.Api/Features/EditTask/EditTaskSql.cs",
+        "app/todoapp-webapi/tests/TodoApp.UnitTests/Features/EditTaskTests.cs",
+        "app/todoapp-webapi/tests/TodoApp.IntegrationTests/Features/EditTaskTests.cs"
+      ],
+      "requirements": [
+        "RF-005: Edit the title through PUT /tasks/{id}.",
+        "RN-001: Trim and reject an empty title.",
+        "RN-006: Editing preserves status.",
+        "RN-007: Missing ids return 404 with no change.",
+        "RN-009: Invalid titles are rejected atomically.",
+        "SEC-003: Validate before mutation and parameterize every input."
+      ]
+    },
+    "priority": 6,
+    "references": [
+      "RF-005",
+      "RN-001",
+      "RN-006",
+      "RN-007",
+      "RN-009",
+      "RNF-001",
+      "RNF-002",
+      "RNF-008",
+      "SEC-003",
+      "ADR-001",
+      "ADR-003",
+      "ADR-010"
+    ],
+    "status": "pending",
+    "title": "EditTask: change title while preserving status"
+  },
+  {
+    "dependsOn": [
+      1,
+      2
+    ],
+    "description": "Implement the RemoveTask vertical slice for DELETE /tasks/{id}. Execute a parameterized delete, return 204 with no body for an existing row, return 404 Problem Details for a missing id, and verify that deletion affects only the requested task.",
+    "id": 7,
+    "implementationContext": {
+      "acceptance": [
+        "Deleting an existing pending or completed task returns 204 with no body and the task no longer appears in listing.",
+        "Deleting a nonexistent id returns 404 Problem Details and does not alter other records.",
+        "The delete operation uses a parameterized id and affected-row count to distinguish success from absence."
+      ],
+      "constraints": [
+        "The slice owns id parsing, DELETE SQL, affected-row handling, and response mapping.",
+        "Use long ids, await/await using, cancellation, and no soft-delete, restore, trash, or audit behavior.",
+        "No generic repository or service is introduced."
+      ],
+      "decisions": [
+        "ADR-001: Keep removal behavior and SQL in the RemoveTask slice.",
+        "ADR-003: Use direct parameterized Npgsql SQL.",
+        "ADR-010: Return 204 with no body or sanitized 404 Problem Details."
+      ],
+      "files": [
+        "app/todoapp-webapi/src/TodoApp.Api/Features/RemoveTask/RemoveTaskEndpoint.cs",
+        "app/todoapp-webapi/src/TodoApp.Api/Features/RemoveTask/RemoveTaskSql.cs",
+        "app/todoapp-webapi/tests/TodoApp.UnitTests/Features/RemoveTaskTests.cs",
+        "app/todoapp-webapi/tests/TodoApp.IntegrationTests/Features/RemoveTaskTests.cs"
+      ],
+      "requirements": [
+        "RF-006: Remove an existing task through DELETE /tasks/{id}.",
+        "RN-007: Missing ids return 404 without mutation.",
+        "SEC-003: Parameterize the id and detect affected-row count before reporting success."
+      ]
+    },
+    "priority": 7,
+    "references": [
+      "RF-006",
+      "RN-007",
+      "RNF-001",
+      "RNF-002",
+      "RNF-008",
+      "SEC-003",
+      "ADR-001",
+      "ADR-003",
+      "ADR-010"
+    ],
+    "status": "pending",
+    "title": "RemoveTask: delete a task safely"
+  },
+  {
+    "dependsOn": [
+      1,
+      2,
+      3,
+      4,
+      5,
+      6,
+      7
+    ],
+    "description": "Build the real integration-test harness and quality gate around the endpoint slices. Use xUnit with an in-process ASP.NET host, HttpClient, and real Compose Postgres; keep integration tests serial, truncate tasks and reset identity before each case, and cover every endpoint's success and failure contract alongside pure rule tests.",
+    "id": 8,
+    "implementationContext": {
+      "acceptance": [
+        "Every RF-001 through RF-006 endpoint scenario has a passing integration test over real HTTP and Postgres, including invalid input, missing ids, ordering, repeated completion, and empty results.",
+        "Pure tests cover validation/normalization, status domain, filtering, idempotency, mapping, and affected-row decisions without HTTP or Postgres.",
+        "Integration cases pass individually, as a suite, and across consecutive runs without ordering or leftover-state dependence."
+      ],
+      "constraints": [
+        "Use xUnit, Microsoft.NET.Test.Sdk, and an ASP.NET test host; mocks and in-memory persistence are not substitutes for integration coverage.",
+        "Use a non-parallel integration collection and truncate tasks plus reset its identity sequence before every case through a dedicated test connection.",
+        "The test suite must assert status codes, response bodies, and application/problem+json content type for errors."
+      ],
+      "decisions": [
+        "ADR-007: Use separate pure unit tests and real HTTP/Postgres integration tests.",
+        "ADR-008: Use serial integration execution with deterministic truncate/reset isolation.",
+        "ADR-001: Preserve visible ownership of each endpoint's tests by its slice."
+      ],
+      "files": [
+        "app/todoapp-webapi/tests/TodoApp.UnitTests/",
+        "app/todoapp-webapi/tests/TodoApp.IntegrationTests/Fixtures/ApiFactory.cs",
+        "app/todoapp-webapi/tests/TodoApp.IntegrationTests/Fixtures/DatabaseIsolation.cs",
+        "app/todoapp-webapi/tests/TodoApp.IntegrationTests/Fixtures/NonParallelCollection.cs",
+        "app/todoapp-webapi/verify-feature.sh"
+      ],
+      "requirements": [
+        "RNF-001: Achieve full real integration coverage for the endpoint scenarios.",
+        "RNF-002: Achieve full applicable pure-rule unit coverage.",
+        "RNF-003: Prove individual, suite, and repeated-run isolation.",
+        "SEC-003: Assert that invalid input is rejected before database mutation."
+      ]
+    },
+    "priority": 8,
+    "references": [
+      "RNF-001",
+      "RNF-002",
+      "RNF-003",
+      "SEC-003",
+      "ADR-001",
+      "ADR-007",
+      "ADR-008"
+    ],
+    "status": "pending",
+    "title": "Verification harness: real HTTP/Postgres coverage and deterministic isolation"
+  },
+  {
+    "dependsOn": [
+      8
+    ],
+    "description": "Add resilience proofs for API-only restart, retained-volume persistence, dependency failure sanitization, and log redaction. Recreate the API host while leaving Postgres running, verify id/title/status equality, and assert that responses and captured logs omit credentials, connection details, stack traces, driver messages, payloads, and titles.",
+    "id": 9,
+    "implementationContext": {
+      "acceptance": [
+        "A task's id, normalized titulo, and status are identical after the API host is recreated while Postgres and its volume remain running.",
+        "An unavailable database returns application/problem+json with 503 and none of the connection, credential, internal-host, stack-trace, or driver details.",
+        "Failure scenarios and normal test logs contain no task titles, request payloads, credentials, or raw driver exceptions."
+      ],
+      "constraints": [
+        "Keep the retained-volume guarantee limited to API restart; do not add backup, restore, HA, performance, or external exposure behavior.",
+        "Use the same public contracts and real local dependencies; do not weaken tests by matching only textual PASS output.",
+        "Redaction must be verified in both response body/headers and captured logs."
+      ],
+      "decisions": [
+        "ADR-005: Prove persistence by recreating the API while retaining the Compose Postgres volume.",
+        "ADR-006: Keep failure handling and logging sanitized at the shared boundary.",
+        "ADR-007: Exercise resilience through the real integration host and database."
+      ],
+      "files": [
+        "app/todoapp-webapi/tests/TodoApp.IntegrationTests/Scenarios/PersistenceAfterApiRestartTests.cs",
+        "app/todoapp-webapi/tests/TodoApp.IntegrationTests/Scenarios/SanitizedDatabaseFailureTests.cs",
+        "app/todoapp-webapi/tests/TodoApp.IntegrationTests/Scenarios/LogRedactionTests.cs",
+        "app/todoapp-webapi/src/TodoApp.Api/Infrastructure/Errors/ProblemDetailsMapper.cs",
+        "app/todoapp-webapi/src/TodoApp.Api/Program.cs"
+      ],
+      "requirements": [
+        "RN-010: Preserve task identity, normalized title, and status across an API-only restart.",
+        "RNF-006: Make persistence after host recreation observable through a query.",
+        "RNF-010: Retain data in the Postgres volume across API restarts.",
+        "SEC-001: Sanitize database-unavailable responses.",
+        "SEC-005: Keep titles and sensitive internal details out of logs."
+      ]
+    },
+    "priority": 9,
+    "references": [
+      "RN-010",
+      "RNF-006",
+      "RNF-010",
+      "SEC-001",
+      "SEC-005",
+      "ADR-005",
+      "ADR-006",
+      "ADR-007"
+    ],
+    "status": "pending",
+    "title": "Persistence and resilience: restart proof and sanitized failures"
+  },
+  {
+    "dependsOn": [
+      9
+    ],
+    "description": "Finish the reproducible local development flow with an idempotent init.sh and one aggregate verification command. Bring up and wait for Compose health, run both unit and integration suites, propagate a non-zero result from either suite, verify repeated startup, and document the supported local-only boundary and execution steps.",
+    "id": 10,
+    "implementationContext": {
+      "acceptance": [
+        "Two successive init.sh executions bring up or reuse healthy Postgres and run the complete unit and integration verification without manual cleanup.",
+        "The aggregate command returns success only when both suites pass and returns non-zero when either suite is induced to fail; it does not infer success from textual PASS output.",
+        "README documents pinned versions, TODO_DB_CONNECTION override, health/readiness flow, API-only persistence guarantee, unauthenticated local-only use, and out-of-scope production/external exposure."
+      ],
+      "constraints": [
+        "init.sh owns Compose readiness and the aggregate command; Compose remains limited to Postgres.",
+        "The flow must be idempotent and must not hardcode credentials or log connection strings, titles, payloads, stack traces, or driver details.",
+        "No CI, cloud, production deployment, frontend, authentication, migration compatibility, pagination, SLA, or regulated-data claim is added."
+      ],
+      "decisions": [
+        "ADR-004: Use Docker Compose as the local Postgres orchestration boundary.",
+        "ADR-005: Use a healthcheck and idempotent init flow for readiness and schema setup.",
+        "ADR-009: Keep connection configuration environment-based with a local-only default.",
+        "ADR-007: Aggregate the unit and real integration suites as the verification result."
+      ],
+      "files": [
+        "app/todoapp-webapi/init.sh",
+        "app/todoapp-webapi/verify-feature.sh",
+        "app/todoapp-webapi/docker-compose.yml",
+        "app/todoapp-webapi/README.md",
+        "app/todoapp-webapi/tests/TodoApp.UnitTests/",
+        "app/todoapp-webapi/tests/TodoApp.IntegrationTests/"
+      ],
+      "requirements": [
+        "RF-009: Provide Compose, idempotent init.sh, readiness, and one aggregate verification command.",
+        "RNF-004: Prove idempotent startup across two successive runs.",
+        "RNF-007: Make the aggregate result fail when either suite fails.",
+        "RNF-011: Document and verify the reproducible supported environment.",
+        "SEC-002: Keep connection configuration externalized.",
+        "SEC-004: Document the unauthenticated local-only boundary."
+      ]
+    },
+    "priority": 10,
+    "references": [
+      "RF-009",
+      "RNF-004",
+      "RNF-007",
+      "RNF-011",
+      "SEC-002",
+      "SEC-004",
+      "ADR-004",
+      "ADR-005",
+      "ADR-007",
+      "ADR-009"
+    ],
+    "status": "pending",
+    "title": "Aggregate local verification and idempotent development flow"
+  }
+]

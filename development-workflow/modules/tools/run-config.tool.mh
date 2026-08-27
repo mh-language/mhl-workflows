@@ -1,0 +1,60 @@
+export memory RunConfigMemory {type: "json" path: ".mhl/run_config.json" }
+
+export tool RunConfig {
+
+    setup(raw: any) : boolean -> {
+
+        try{
+            var target_dir = raw.TARGET_DIR
+            var verify_cmd = raw.VERIFY_CMD
+
+            self.set("target_dir", target_dir)
+            self.set("verify_cmd", verify_cmd)
+            
+            return true
+        } catch (e) {
+            log.error("[dev] failed to set up RunConfig: ${e}")
+            return false
+        }
+    }
+
+    get_target_dir() -> self.get("target_dir", null)
+
+    get_verify_cmd() -> self.get("verify_cmd", null)
+
+    // Tunable guards. Harness defaults; override per run via run_config.json "config".
+    steps_per_feature() : number -> self.get("steps_per_feature", 6)
+    max_replans()       : number -> self.get("max_replans", 2)
+    max_features()      : number -> self.get("max_features", 10)
+    docs_folder()       : string -> self.get("docs_folder", "specs/active")
+
+    get_config() -> { 
+        var config = RunConfigMemory.get("config", null)
+        if (config == null) {
+            config = {}
+            RunConfigMemory.set("config", config)
+        }        
+        return config
+    }
+
+    get(key: string, defaultValue: any) -> {
+        try {
+            var value = self.get_config()[key]
+            if (value == null) {
+                return defaultValue
+            }
+            return value
+        } catch (e) {
+            return defaultValue
+        }
+        return self.get_config()[key] 
+    }
+
+    set(key: string, value: any) -> {
+        var config = self.get_config()
+        config[key] = value
+        RunConfigMemory.set("config", config)
+    }
+
+    reset() -> RunConfigMemory.set("config", null)
+}

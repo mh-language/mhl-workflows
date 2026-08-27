@@ -1,0 +1,191 @@
+{
+    "schema": "iao/development-plan/v1",
+    "specificationBundleDigest": "sha256:fe9ff253219e4c314754a873d3e37bae30a080f3c21980a2e73ac9a4bfbe24c1",
+    "sourceFiles": [
+        "00-prd.md",
+        "10-software-requirements-specification.md",
+        "20-software-design-document.md",
+        "30-readiness-handoff.md"
+    ],
+    "features": [
+        {
+            "id": 1,
+            "title": "Disponibilizar Postgres local, esquema e verifica\u00E7\u00E3o inicial reproduz\u00EDvel.",
+            "priority": 1,
+            "passes": false,
+            "dependsOn": [],
+            "description": "Disponibilizar Postgres local, esquema e verifica\u00E7\u00E3o inicial reproduz\u00EDvel.. Observable outcome: Um ambiente fresco inicia o banco, cria o esquema e fica pronto para testes sem setup manual.. Happy path: Duas execu\u00E7\u00F5es de init aguardam healthcheck e completam com sucesso.. Failure path: Banco indispon\u00EDvel ou conex\u00E3o inv\u00E1lida interrompe o fluxo sem expor credenciais..",
+            "references": [
+                "RF-6",
+                "RF-7",
+                "ADR-2",
+                "ADR-3",
+                "ADR-5",
+                "AC-6",
+                "AC-7",
+                "IF-2",
+                "DR-2",
+                "IC-2"
+            ],
+            "implementationContext": {
+                "requirements": [
+                    "RF-6: Inicializar esquema Postgres e preservar dados ap\u00F3s rein\u00EDcio da API.",
+                    "RF-7: Fornecer Compose, configura\u00E7\u00E3o, init idempotente e comando agregado de testes."
+                ],
+                "decisions": [
+                    "ADR-2: Postgres and direct Npgsql persistence. Decision: Use one local Postgres service, a persistent volume and parameterized Npgsql commands.. Rationale: Provides real persistence, simple local operation and integration fidelity without mocks.",
+                    "ADR-3: Idempotent schema bootstrap. Decision: Apply the required table schema at API startup with an idempotent bootstrap before serving requests.. Rationale: Supports fresh databases and API recreation while avoiding a mandatory separate migration tool.",
+                    "ADR-5: Idempotent local verification. Decision: Use Compose healthcheck, init.sh, serial real HTTP/Postgres integration tests and reset before each case.. Rationale: Provides reproducible aggregate verification and prevents cross-test contamination."
+                ],
+                "constraints": [
+                    "out of scope: Endpoints de neg\u00F3cio",
+                    "out of scope: Produ\u00E7\u00E3o, cloud e CI",
+                    "Banco saud\u00E1vel antes da API/testes",
+                    "Schema idempotente",
+                    "Exit code agregado s\u00F3 passa com duas su\u00EDtes verdes",
+                    "IF-2: Database configuration. Interface de configura\u00E7\u00E3o da conex\u00E3o por ambiente.",
+                    "DR-2: Esquema idempotente e SQL parametrizado; valida\u00E7\u00E3o precede muta\u00E7\u00E3o.",
+                    "IC-2: Bootstrap and persistence proof. Healthcheck, idempotent schema, retained volume and API-only restart scenario."
+                ],
+                "files": [
+                    "Primeiro incremento de infraestrutura local"
+                ],
+                "acceptance": [
+                    "Fresh database e duas execu\u00E7\u00F5es sucessivas demonstram bootstrap, configura\u00E7\u00E3o e persist\u00EAncia do esquema.",
+                    "AC-6: Given Postgres fresco. When API inicia e reinicia mantendo volume. Then Esquema \u00E9 criado e tarefa permanece.",
+                    "AC-7: Given Ambiente local. When init \u00E9 executado duas vezes. Then \u00C9 idempotente e s\u00F3 passa com as duas su\u00EDtes verdes."
+                ]
+            }
+        },
+        {
+            "id": 2,
+            "title": "Entregar o contrato funcional completo de tarefas com slices verticais.",
+            "priority": 2,
+            "passes": false,
+            "dependsOn": [
+                1
+            ],
+            "description": "Entregar o contrato funcional completo de tarefas com slices verticais.. Observable outcome: Consumidor HTTP pode executar todos os fluxos definidos e recebe respostas determin\u00EDsticas.. Happy path: Tarefas s\u00E3o criadas pendentes, consultadas por id, conclu\u00EDdas idempotentemente, editadas sem mudar status e removidas.. Failure path: Entradas inv\u00E1lidas e ids ausentes n\u00E3o mutam dados; falha do banco retorna 503 sem detalhes internos..",
+            "references": [
+                "RF-1",
+                "RF-2",
+                "RF-3",
+                "RF-4",
+                "RF-5",
+                "RF-8",
+                "RQ-3",
+                "ADR-1",
+                "ADR-2",
+                "ADR-4",
+                "ADR-6",
+                "AC-1",
+                "AC-2",
+                "AC-3",
+                "AC-4",
+                "AC-5",
+                "AC-8",
+                "AC-11",
+                "IF-1",
+                "IF-2",
+                "DR-1",
+                "DR-2",
+                "IC-1",
+                "IC-3",
+                "IC-4",
+                "IC-5"
+            ],
+            "implementationContext": {
+                "requirements": [
+                    "RF-1: Criar tarefa normalizada e pendente.",
+                    "RF-2: Listar e filtrar tarefas ordenadas por id.",
+                    "RF-3: Concluir tarefa de forma idempotente.",
+                    "RF-4: Editar t\u00EDtulo preservando status.",
+                    "RF-5: Remover tarefa existente.",
+                    "RF-8: Validar antes de mutar, parametrizar SQL e sanitizar indisponibilidade.",
+                    "RQ-3: Cada endpoint permanece em seu vertical slice e o kernel \u00E9 m\u00EDnimo."
+                ],
+                "decisions": [
+                    "ADR-1: Vertical slices with minimal kernel. Decision: Organize each endpoint in its own feature slice and keep only genuinely common task/error/configuration types in the kernel.. Rationale: Preserves cohesion, traceability and the approved architecture without generic layers.",
+                    "ADR-2: Postgres and direct Npgsql persistence. Decision: Use one local Postgres service, a persistent volume and parameterized Npgsql commands.. Rationale: Provides real persistence, simple local operation and integration fidelity without mocks.",
+                    "ADR-4: Canonical HTTP contract. Decision: Use task fields id/titulo/status, pendente/concluida states, ascending-id listing, Problem Details and 503 for dependency unavailability.. Rationale: Makes behavior predictable and aligns all slices and acceptance criteria.",
+                    "ADR-6: External configuration and sanitized boundary. Decision: Read TODO_DB_CONNECTION, use only a local default, parameterize SQL and map failures through a sanitized Error Boundary.. Rationale: Reduces leakage and injection risks while preserving the local development scope."
+                ],
+                "constraints": [
+                    "out of scope: Autentica\u00E7\u00E3o, frontend, pagina\u00E7\u00E3o e m\u00FAltiplos usu\u00E1rios",
+                    "POST/GET/PATCH/PUT/DELETE em /tasks",
+                    "id/titulo/status",
+                    "Problem Details e 503 sanitizado",
+                    "IF-1: Task HTTP API. Interface HTTP/JSON para opera\u00E7\u00F5es de tarefas.",
+                    "IF-2: Database configuration. Interface de configura\u00E7\u00E3o da conex\u00E3o por ambiente.",
+                    "DR-1: Id gerado; t\u00EDtulo obrigat\u00F3rio e trimado; status pendente/conclu\u00EDda; conclus\u00E3o idempotente.",
+                    "DR-2: Esquema idempotente e SQL parametrizado; valida\u00E7\u00E3o precede muta\u00E7\u00E3o.",
+                    "IC-1: Input and SQL safety. Validate and normalize before mutation; bind all database values as parameters.",
+                    "IC-3: Deterministic integration isolation. Real HTTP/Postgres, serial execution and cleanup/reset before each case.",
+                    "IC-4: Error and log redaction. Problem Details and logs omit credentials, connection, stack, driver details, payloads and titles.",
+                    "IC-5: Structural slice review. Review folder ownership and reject generic controller/service/repository layers."
+                ],
+                "files": [
+                    "Slices verticais de endpoint ap\u00F3s infraestrutura"
+                ],
+                "acceptance": [
+                    "Testes HTTP cobrem casos v\u00E1lidos, filtros, repeti\u00E7\u00E3o, erros, ordena\u00E7\u00E3o e aus\u00EAncia de muta\u00E7\u00E3o indevida.",
+                    "AC-1: Given Banco vazio e t\u00EDtulo v\u00E1lido. When POST /tasks \u00E9 enviado. Then Retorna 201, Location, t\u00EDtulo normalizado e status pendente.",
+                    "AC-2: Given H\u00E1 tarefas em ambos os estados. When GET /tasks \u00E9 chamado. Then Retorna conjuntos corretos ordenados; filtro inv\u00E1lido retorna 400.",
+                    "AC-3: Given Existe tarefa e id inexistente. When Complete \u00E9 repetido. Then A tarefa fica conclu\u00EDda com 200 e o inexistente retorna 404.",
+                    "AC-4: Given Existe tarefa. When PUT envia t\u00EDtulo v\u00E1lido e inv\u00E1lido. Then T\u00EDtulo v\u00E1lido muda preservando status; inv\u00E1lido n\u00E3o altera.",
+                    "AC-5: Given Existe tarefa. When DELETE \u00E9 enviado. Then Retorna 204 e remove; id inexistente retorna 404.",
+                    "AC-8: Given Entrada inv\u00E1lida ou banco indispon\u00EDvel. When Opera\u00E7\u00E3o \u00E9 executada. Then N\u00E3o h\u00E1 muta\u00E7\u00E3o indevida e falha retorna Problem Details 503 sanitizado.",
+                    "AC-11: Given Estrutura \u00E9 revisada. When Slices s\u00E3o inspecionados. Then Cada endpoint est\u00E1 isolado sem camadas gen\u00E9ricas."
+                ]
+            }
+        },
+        {
+            "id": 3,
+            "title": "Provar isolamento, persist\u00EAncia ap\u00F3s rein\u00EDcio e prote\u00E7\u00E3o de informa\u00E7\u00F5es.",
+            "priority": 3,
+            "passes": false,
+            "dependsOn": [
+                2
+            ],
+            "description": "Provar isolamento, persist\u00EAncia ap\u00F3s rein\u00EDcio e prote\u00E7\u00E3o de informa\u00E7\u00F5es.. Observable outcome: Execu\u00E7\u00F5es repetidas s\u00E3o determin\u00EDsticas, a tarefa sobrevive ao restart e falhas permanecem sanitizadas.. Happy path: Criar tarefa, recriar host da API e listar a mesma tarefa; repetir a su\u00EDte permanece verde.. Failure path: Vazamento, contamina\u00E7\u00E3o entre testes ou perda inesperada faz a verifica\u00E7\u00E3o falhar..",
+            "references": [
+                "RQ-1",
+                "RQ-2",
+                "ADR-5",
+                "ADR-6",
+                "AC-9",
+                "AC-10",
+                "IC-3",
+                "IC-4"
+            ],
+            "implementationContext": {
+                "requirements": [
+                    "RQ-1: Integra\u00E7\u00E3o usa HTTP/Postgres reais, serializa\u00E7\u00E3o e isolamento por caso.",
+                    "RQ-2: Respostas e logs n\u00E3o exp\u00F5em segredos, detalhes internos ou t\u00EDtulos."
+                ],
+                "decisions": [
+                    "ADR-5: Idempotent local verification. Decision: Use Compose healthcheck, init.sh, serial real HTTP/Postgres integration tests and reset before each case.. Rationale: Provides reproducible aggregate verification and prevents cross-test contamination.",
+                    "ADR-6: External configuration and sanitized boundary. Decision: Read TODO_DB_CONNECTION, use only a local default, parameterize SQL and map failures through a sanitized Error Boundary.. Rationale: Reduces leakage and injection risks while preserving the local development scope."
+                ],
+                "constraints": [
+                    "out of scope: Backup, alta disponibilidade, desempenho e exposi\u00E7\u00E3o externa",
+                    "Isolamento determin\u00EDstico",
+                    "Persist\u00EAncia com volume retido",
+                    "Logs sem payload/t\u00EDtulo/segredo",
+                    "IC-3: Deterministic integration isolation. Real HTTP/Postgres, serial execution and cleanup/reset before each case.",
+                    "IC-4: Error and log redaction. Problem Details and logs omit credentials, connection, stack, driver details, payloads and titles."
+                ],
+                "files": [
+                    "Incremento de resili\u00EAncia e qualidade ap\u00F3s os endpoints"
+                ],
+                "acceptance": [
+                    "Cen\u00E1rios de restart, repeti\u00E7\u00E3o, reset, redaction e falha de depend\u00EAncia passam em conjunto.",
+                    "AC-9: Given Su\u00EDte repetida. When Cada caso executa. Then Usa HTTP/Postgres reais, serial e sem vazamento.",
+                    "AC-10: Given Falha de banco. When Resposta e logs s\u00E3o inspecionados. Then N\u00E3o cont\u00EAm segredos, stack trace, driver, payload ou t\u00EDtulo."
+                ]
+            }
+        }
+    ],
+    "targetDescription": "WebAPI ASP.NET Core local com Postgres Compose e testes",
+    "verificationDescription": "Executar init repetido e validar contrato, regras, persist\u00EAncia, isolamento e sanitiza\u00E7\u00E3o."
+}

@@ -1,0 +1,413 @@
+use { RunConfig as config } from "run-config.tool.mh"
+
+memory Memory { type: "json" path: ".mhl/feature_list.json" }
+memory ObsMemory { type: "json" path: ".mhl/plan_observations.json" }
+
+export tool FeatureStore {
+    // Get the list of features from memory
+    get() : object[] -> Memory.get("features", null)
+
+    // Set the list of features in memory
+    set(features) -> Memory.set("features", features)
+
+    // Check if there are any pending features
+    has_pending_features() : boolean -> {
+        var features = self.get()
+        if (features == null) return false
+        return features.filter((f) -> f.status == "pending").size() > 0
+    }
+
+    // Mark a feature as done by id, persisting the updated list
+    mark_done(id) : boolean -> {
+        var features = self.get()
+        if (features == null) return false
+
+        var updated = false
+        var result = []
+        for (var f in features) {
+            var status = if (f.id == id) "done" else f.status
+            if (f.id == id) {
+                updated = true
+            }
+            result = result + [
+            {
+                "id": f.id,
+                "description": f.description,
+                "references": f.references,
+                "implementationContext": f.implementationContext,
+                "title": f.title,
+                "priority": f.priority,
+                "dependsOn": f.dependsOn,
+                "status": status
+            }]
+        }
+
+        if (updated == false) {
+            log.info("[dev] mark_done: feature ${id} not found in store.")
+            return false
+        }
+
+        self.set(result)
+        log.info("[dev] Feature ${id} marked as done.")
+        return true
+    }
+
+    // Accept a parsed development-plan object ({"features":[...]}), cap it to
+    // max_features (dropping dependsOn ids cut by the cap) and persist. Mirrors
+    // import_from without the file read; used by the Plan step's Codex fallback.
+    set_plan(plan) : boolean -> {
+        if (plan == null) return false
+
+        var raw = plan.features
+        if (raw == null || raw.size() == 0) {
+            log.info("[dev] set_plan: parsed plan had no 'features' array.")
+            return false
+        }
+
+        var capped = self.cap_features(raw, config.max_features())
+        if (capped.size() == 0) {
+            log.info("[dev] set_plan: feature list was empty after capping.")
+            return false
+        }
+
+        self.set(capped)
+        return true
+    }
+
+    pick_next_feature() : object -> {
+        var features = self.get()
+
+        var passedIds = []
+        for (var f in features) {
+            if (f.status == "done") {
+                passedIds = passedIds + [f.id]
+            }
+        }
+
+        var ready = features
+            .filter((f) -> f.status == "pending" && f.dependsOn.filter((d) -> !passedIds.contains(d)).is_empty())
+            .sort_by((f) -> f.id)
+            .sort_by((f) -> f.priority)
+
+        return if (ready.is_empty()) null else ready[0]
+    }
+
+    // Reset the feature store by clearing features, observations and plan files
+    reset() -> {
+        Memory.set("features", null)
+        ObsMemory.set("observations", null)
+        self.reset_plan()
+    }
+
+    // reset_plan deletes the plan / revision-proposal files to reset the feature store
+    reset_plan() -> {
+        for (var planfile in [".mhl/plan.json", ".mhl/plan_revision.json"]) {
+            try {
+                if (fs.exists(planfile)) {
+                    log.info("[dev] Deleting plan file: ${planfile}")
+                    fs.delete(planfile)
+                }
+            } catch (e) {
+                log.error("[dev] failed to clear ${planfile}: ${e}")
+            }
+        }
+    }
+
+    // Try to import a preview plan
+    try_import_preview_plan() : boolean -> {
+        var candidates = self.get_candidates_paths(config.docs_folder())
+
+        var i = 0
+        var found = false
+        var result = false
+        while (i < candidates.size() && found == false) {
+            var outcome = self.import_from(candidates[i], config.max_features())
+            if (outcome != null) {
+                found = true
+                result = outcome
+            }
+            i = i + 1
+        }
+        return result
+    }    
+
+    // Get the list of candidate paths for the development plan
+    get_candidates_paths(docsFolder: string) : string[] -> {
+        var raw = [
+            "${docsFolder}/40-development-plan.json",
+            "${docsFolder}/active/40-development-plan.json",
+            "specs/active/40-development-plan.json"
+        ]
+        var unique = []
+        for (var path in raw) {
+            if (!unique.contains(path)) {
+                unique = unique + [path]
+            }
+        }
+        return unique
+    }
+
+    // Import features from a given path, capping the number of features to maxFeatures
+    import_from(path: string, maxFeatures: number) : boolean -> {
+
+        try {
+            var raw = fs.read(path)
+            var plan = json.parse(raw)
+            var features = self.cap_features(plan.features, maxFeatures)
+            if (features.size() == 0) {
+                log.info("[dev] published handoff '${path}' was invalid or empty.")
+                return false
+            }
+            FeatureStore.set(features)
+            return true
+        } catch (err) {
+            log.error("[dev] failed to import published handoff '${path}': ${err}")
+            return false
+        }
+    }  
+
+    // Cap the number of features to maxFeatures, preserving dependencies and sorting by priority
+    cap_features(features: object[], maxFeatures: number) : object[] -> {
+        var sorted = features.sort_by((f) -> f.priority * 1000000 + f.id)
+        var capped = sorted[..maxFeatures]
+
+        var cappedIds = []
+        for (var f in capped) {
+            cappedIds = cappedIds + [f.id]
+        }
+
+        var result = []
+        for (var f in capped) {
+            var deps = f.dependsOn.filter((d) -> cappedIds.contains(d))
+            result = result + [
+            {
+                "id": f.id, 
+                "description": f.description,
+                "references": f.references,
+                "implementationContext": f.implementationContext,
+                "title": f.title, 
+                "priority": f.priority, 
+                "dependsOn": deps, 
+                "status": "pending"
+            }]
+        }
+        return result
+    } 
+
+    // --- Plan revision (replan) ----------------------------------------------
+
+    // Append a plan observation; returns its generated id (OBS-N).
+    record_observation(kind: string, feature_id, summary: string, evidence: string) : string -> {
+        var existing = ObsMemory.get("observations", null)
+        if (existing == null) {
+            existing = []
+        }
+        var n = existing.size() + 1
+        var obs_id = "OBS-${n}"
+        var entry = {
+            "id": obs_id,
+            "kind": kind,
+            "feature_id": feature_id,
+            "summary": summary,
+            "evidence": evidence
+        }
+        ObsMemory.set("observations", existing + [entry])
+        return obs_id
+    }
+
+    // Human-readable list of recorded observations for the replan prompt.
+    get_observations_text() : string -> {
+        var existing = ObsMemory.get("observations", null)
+        if (existing == null || existing.size() == 0) {
+            return "(no observations recorded)"
+        }
+        var text = ""
+        for (var o in existing) {
+            text = text + "${o.id} [${o.kind}] feature=${o.feature_id}: ${o.summary}; evidence=${o.evidence}\n"
+        }
+        return text
+    }
+
+    // Returns true when the dependsOn graph has a cycle (Kahn's algorithm:
+    // repeatedly drop nodes whose dependencies are all resolved).
+    has_cycle(features: object[]) : boolean -> {
+        var remaining = []
+        for (var f in features) {
+            remaining = remaining + [f]
+        }
+
+        var resolved = []
+        var changed = true
+        while (changed == true) {
+            changed = false
+            var next_remaining = []
+            for (var r in remaining) {
+                var deps = if (r.dependsOn == null) [] else r.dependsOn
+                var unmet = deps.filter((d) -> !resolved.contains(d))
+                if (unmet.is_empty()) {
+                    resolved = resolved + [r.id]
+                    changed = true
+                } else {
+                    next_remaining = next_remaining + [r]
+                }
+            }
+            remaining = next_remaining
+        }
+
+        return remaining.size() > 0
+    }
+
+    // Validate a driver-proposed plan revision and, if valid, replace the plan.
+    // revision = { reason, alternativesConsidered, basedOnObservationIds, revisedFeatures }
+    // Returns { success: boolean, error: string }.
+    apply_revision(revision) : object -> {
+        if (revision == null) {
+            return {"success": false, "error": "no revision object"}
+        }
+        var proposed = revision.revisedFeatures
+        if (proposed == null || proposed.size() == 0) {
+            return {"success": false, "error": "revisedFeatures is missing or empty"}
+        }
+
+        // 1. ids present, positive and unique
+        var seen = []
+        for (var f in proposed) {
+            if (f.id == null || f.id <= 0) {
+                return {"success": false, "error": "every feature needs a positive integer id"}
+            }
+            if (seen.contains(f.id)) {
+                return {"success": false, "error": "duplicate feature id ${f.id}"}
+            }
+            seen = seen + [f.id]
+        }
+
+        // 2. every already-completed feature must survive the revision
+        var current = self.get()
+        var done_ids = []
+        if (current != null) {
+            for (var c in current) {
+                if (c.status == "done") {
+                    done_ids = done_ids + [c.id]
+                }
+            }
+        }
+        for (var d in done_ids) {
+            if (!seen.contains(d)) {
+                return {"success": false, "error": "revision drops already-completed feature ${d}"}
+            }
+        }
+
+        // 3. dependsOn must reference known ids, no self-deps, no cycles
+        for (var f in proposed) {
+            var deps = if (f.dependsOn == null) [] else f.dependsOn
+            for (var dep in deps) {
+                if (dep == f.id) {
+                    return {"success": false, "error": "feature ${f.id} depends on itself"}
+                }
+                if (!seen.contains(dep)) {
+                    return {"success": false, "error": "feature ${f.id} depends on unknown id ${dep}"}
+                }
+            }
+        }
+        if (self.has_cycle(proposed) == true) {
+            return {"success": false, "error": "dependency graph has a cycle"}
+        }
+
+        // 4. normalize: completed features stay done, everything else pending
+        var normalized = []
+        for (var f in proposed) {
+            var status = if (done_ids.contains(f.id)) "done" else "pending"
+            normalized = normalized + [
+            {
+                "id": f.id,
+                "description": f.description,
+                "references": if (f.references == null) [] else f.references,
+                "implementationContext": f.implementationContext,
+                "title": f.title,
+                "priority": f.priority,
+                "dependsOn": if (f.dependsOn == null) [] else f.dependsOn,
+                "status": status
+            }]
+        }
+
+        // 5. cap to max_features (completed first, then by priority), sanitize deps
+        var ordered = normalized
+            .sort_by((f) -> f.priority * 1000 + f.id)
+            .sort_by((f) -> if (f.status == "done") 0 else 1)
+        var capped = ordered[..config.max_features()]
+
+        var kept_ids = []
+        for (var f in capped) {
+            kept_ids = kept_ids + [f.id]
+        }
+        for (var d in done_ids) {
+            if (!kept_ids.contains(d)) {
+                return {"success": false, "error": "too many features; completed feature ${d} would be cut"}
+            }
+        }
+
+        var final = []
+        for (var f in capped) {
+            var kept_deps = f.dependsOn.filter((d) -> kept_ids.contains(d))
+            final = final + [
+            {
+                "id": f.id,
+                "description": f.description,
+                "references": f.references,
+                "implementationContext": f.implementationContext,
+                "title": f.title,
+                "priority": f.priority,
+                "dependsOn": kept_deps,
+                "status": f.status
+            }]
+        }
+
+        self.set(final)
+        return {"success": true, "error": ""}
+    }
+
+    // Where the driver writes its revision proposal for the replan step.
+    revision_proposal_path() : string -> ".mhl/plan_revision.json"
+
+    // Drop a stale proposal so it can't satisfy the next replan attempt.
+    clear_revision_proposal() -> {
+        var path = self.revision_proposal_path()
+        try {
+            if (fs.exists(path)) {
+                fs.delete(path)
+            }
+        } catch (e) {
+            log.warn("[dev] could not clear ${path}: ${e}")
+        }
+    }
+
+    // Current persisted feature list as raw JSON, for the replan prompt.
+    current_plan_json() : string -> {
+        var path = ".mhl/feature_list.json"
+        return if (fs.exists(path)) fs.read(path) else "(no plan on disk)"
+    }
+
+    // Load the driver-written revision file and apply it. Returns { success, error }.
+    apply_revision_file() : object -> {
+        var path = self.revision_proposal_path()
+        if (!fs.exists(path)) {
+            return {"success": false, "error": "Codex did not write ${path}"}
+        }
+        var revision = json.parse(fs.read(path))
+        var outcome = self.apply_revision(revision)
+        if (outcome.success == true) {
+            log.info("[dev] Applied plan revision: ${revision.reason}")
+        }
+        return outcome
+    }
+
+    // Read all files in the source folder and concatenate their contents into a single string
+    read_files_in_source_folder(path: string) : string -> {
+        var files = fs.list(path)
+        var content = ""
+        for (var file in files) {
+            content = content + fs.read(file) + "\n"
+        }
+        return content
+    }         
+}

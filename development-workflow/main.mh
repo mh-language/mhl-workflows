@@ -1,0 +1,245 @@
+use {FeatureStore as store, RunConfig as config} from "modules/tools/feature.tool.mh"
+use {ImplementTool as implement} from "modules/tools/implement.tool.mh"
+use {CodexSchemas as schemas} from "modules/agents/codex.schemas.mh"
+use {BearingsTool as bearings} from "modules/tools/bearings.tool.mh"
+use {CodexAdapter as adapter} from "modules/agents/codex.adapter.mh"
+use {VerifyTool as verify} from "modules/tools/verify.tool.mh"
+use {Session as session} from "modules/tools/session.tool.mh"
+use {SmokeTool as smoke} from "modules/tools/smoke.tool.mh"
+use {HandoffTool as handoff} from "modules/tools/handoff.tool.mh"
+
+// Prompts
+prompt SetupPrompt() from "modules/prompts/setup.prompt.md"
+prompt PlanPrompt(plan_path: string, content: string) from "modules/prompts/plan.prompt.md"
+prompt SmokePrompt(log_path: string) from "modules/prompts/retry-smoke.prompt.md"
+
+prompt ImplementPrompt(
+    id: string,
+    priority: string,
+    title: string,
+    feature_description: string,
+    feature_references: string,
+    feature_context: string,
+    design_context: string,
+    target_dir: string) from "modules/prompts/implement.prompt.md"
+
+prompt FixPrompt(
+    id: string,
+    title: string,
+    feature_context: string,
+    design_context: string,
+    verify_failure: string,
+    target_dir: string) from "modules/prompts/fix.prompt.md"
+
+prompt ReplanPrompt(
+    observation: string,
+    observations: string,
+    current_plan: string,
+    proposal_path: string) from "modules/prompts/replan.prompt.md"
+
+
+// Feature Cycle Pipeline
+loop pipeline FeatureCycle {
+
+    repeat: {
+        stop_when: store.has_pending_features() == false
+        max_iterations: 15
+    }
+
+    checkpoint: {
+        enabled: true
+        strategy: "per_step"
+        storage: "file"
+        ttl: 7d
+    }
+
+    mem bearingkey = "current_bearings"
+    mem current_feature = {}
+    mem verify_result = ""
+    mem feature_steps = 0
+    mem verify_failures = 0
+    mem replans = 0
+
+    // Start the feature cycle.
+    step Start {
+        log.info("[dev] Starting feature cycle pipeline...")
+        if (store.has_pending_features() == true) goto Bearings
+
+        log.info("[dev] No pending features found. Resetting feature store and run config...")
+        store.reset()
+        config.reset()
+
+        log.info("[dev] Importing features from plan...")
+        if (store.try_import_preview_plan() == false) goto Plan else goto Setup
+    }
+
+    // Codex fallback planner: used when no published development plan could be imported.
+    step Plan {
+        var content = store.read_files_in_source_folder("./specs/sources")
+        var plan_path = "specs/active/40-development-plan.json"
+
+        log.info("[dev] Generating plan at ${plan_path} using Codex...")
+        var result =adapter.execute_without_schema(query: PlanPrompt(plan_path: plan_path, content: content))
+        
+        log.info("[dev] Plan step result: ${result}")
+        var plan_json = fs.read(plan_path)
+        var plan = json.parse(plan_json)
+        if (store.set_plan(plan) == false) {
+            fail("[dev] Plan step failed. Codex did not produce a valid feature list at ${plan_path}.")
+        }
+    }
+
+    step Setup {
+        log.info("[dev] Running setup step...")
+        var schema = schemas.get_setup_schema_path()
+        var result = adapter.execute(prompt: SetupPrompt(), schema_path: schema)
+
+        if (result == null) {
+            fail("[dev] Setup step failed. No result returned from Codex.")
+        }
+
+        log.info("[dev] Setup step result: ${result}")
+        var raw = json.parse(result)
+        config.setup(raw)
+    }
+
+    step Bearings {
+        session.set(bearingkey, bearings.snapshot())
+    }
+
+    step Smoke {
+        var result = smoke.execute()
+        if (result.success == false) {
+            log.info("[dev] Inspecting smoke test log and preparing to retry...")
+            var smoke_result = adapter.execute_without_schema(query: SmokePrompt(log_path: result.logPath))
+            goto Bearings
+        }
+    }
+
+    step Pick {
+        if (store.has_pending_features() == false) {
+            log.info("[dev] All features passing. Feature cycle complete.")
+            break
+        }
+
+        var next_feature = store.pick_next_feature()
+        if (next_feature == null) {
+            fail("[dev] Pending features remain but none are ready (blocked dependencies). See .mhl/feature_list.json.")
+        }
+
+        current_feature = next_feature
+        feature_steps = 0
+        verify_failures = 0
+        verify_result = ""
+        session.append("current_feature", next_feature)
+    }
+
+    step Implement {
+        // Per-feature guard: bounds the Implement <-> Verify loop so one feature
+        // can never burn the whole run.
+        feature_steps = feature_steps + 1
+        if (feature_steps > config.steps_per_feature()) {
+            fail("[dev] Feature ${current_feature.id} exceeded ${config.steps_per_feature()} implement/verify attempts. Stopping. See .mhl/feature_list.json.")
+        }
+
+        var feature = current_feature
+        var fctx = implement.get_feature_context(feature: feature)
+        var dctx = implement.get_design_context()
+        var tdir = config.get_target_dir()
+
+        var result = {}
+        if (verify_failures == 0) {
+            result = adapter.execute_without_schema(query: ImplementPrompt(
+                id: "${feature.id}",
+                priority: "${feature.priority}",
+                title: feature.title,
+                feature_description: feature.description,
+                feature_references: "${feature.references}",
+                feature_context: fctx,
+                design_context: dctx,
+                target_dir: tdir))
+        } else {
+            log.info("[dev] Retrying feature ${feature.id} after verification failure #${verify_failures}...")
+            result = adapter.execute_without_schema(query: FixPrompt(
+                id: "${feature.id}",
+                title: feature.title,
+                feature_context: fctx,
+                design_context: dctx,
+                verify_failure: verify_result,
+                target_dir: tdir))
+        }
+
+        if (result == null) {
+            fail("[dev] Implement step failed. No result returned from Codex.")
+        }
+
+        log.info("[dev] Implement step result: ${result}")
+    }
+
+    step Verify {
+        if (verify.verify_feature(current_feature) == false) {
+            verify_failures = verify_failures + 1
+            verify_result = "FAIL: Feature ${current_feature.id} failed verification (attempt #${verify_failures})."
+            log.warn("[dev] ${verify_result}")
+
+            // First failures get a targeted fix; from the 3rd on, escalate to a plan
+            // revision (unless the replan budget is already spent).
+            if (verify_failures >= 3 && replans < config.max_replans()) {
+                var obs_id = store.record_observation(
+                    "verification_failure",
+                    current_feature.id,
+                    "Feature ${current_feature.id} failed deterministic verification ${verify_failures} times.",
+                    verify_result)
+                log.warn("[dev] Escalating feature ${current_feature.id} to replan (${obs_id}).")
+                goto Replan
+            }
+
+            goto Implement
+        }
+
+        verify_result = "PASS: Feature ${current_feature.id} verified successfully."
+        log.info("[dev] Feature ${current_feature.id} verified. Marking as done...")
+        store.mark_done(current_feature.id)
+        goto Handoff
+    }
+
+    step Replan {
+        replans = replans + 1
+        if (replans > config.max_replans()) {
+            fail("[dev] Reached the replan limit (${config.max_replans()}). Stopping. See .mhl/feature_list.json.")
+        }
+
+        store.clear_revision_proposal()
+
+        log.info("[dev] Requesting plan revision #${replans} from Codex...")
+        var result = adapter.execute_without_schema(query: ReplanPrompt(
+            observation: verify_result,
+            observations: store.get_observations_text(),
+            current_plan: store.current_plan_json(),
+            proposal_path: store.revision_proposal_path()))
+
+        if (result == null) {
+            fail("[dev] Replan step failed. No result returned from Codex.")
+        }
+
+        var outcome = store.apply_revision_file()
+        if (outcome.success == false) {
+            log.warn("[dev] Replan attempt #${replans} rejected: ${outcome.error}")
+            goto Replan
+        }
+
+        verify_failures = 0
+        verify_result = ""
+        feature_steps = 0
+        goto Bearings
+    }
+
+    step Handoff {
+        var result = handoff.commit_feature(current_feature, verify_result)
+        session.append("handoff", {
+            feature_id: current_feature.id,
+            verify_result: verify_result,
+            result: result
+        })
+    }
+}

@@ -1,0 +1,85 @@
+use {CodexSchemas as schemas} from "codex.schemas.mh"
+
+export agent Codex {
+    engine: "cli/codex"
+    command: "codex"
+    log: ".mhl/logs/codex.log"
+    args: [
+        "exec",
+        //"--sandbox", "workspace-write",
+        "--approve-for-me",
+        "--json",
+        "--output-schema", "${schema}",
+        "--",
+        "${prompt}"
+    ]
+
+    retry: {
+        max_attempts: 1
+        delay: 5s
+    }
+
+    after: (mcp, tool, result) -> {
+        var usage = CodexResultParser.extract_usage(result)
+        log("[dev] codex usage: ${json.stringify(usage)}")
+    }
+}
+
+export agent CodexWithoutSchema {
+    engine: "cli/codex"
+    command: "codex"
+    log: ".mhl/logs/codex.log"
+    args: [
+        "exec",
+        //"--sandbox", "workspace-write",
+        "--approve-for-me",
+        "--json",
+        "--",
+        "${prompt}"
+    ]
+
+    retry: {
+        max_attempts: 1
+        delay: 5s
+    }
+
+    after: (mcp, tool, result) -> {
+        var usage = CodexResultParser.extract_usage(result)
+        log("[dev] codex usage: ${json.stringify(usage)}")
+    }
+}
+
+export tool CodexResultParser {
+    parse(raw: string) -> {
+        try {
+            var events = json.parse_lines(raw)
+            var completed = events.filter((e) -> e.type == "item.completed")
+            var agentMessages = completed.filter((e) -> e.item.type == "agent_message")
+            return agentMessages[agentMessages.size() - 1].item.text
+        } catch (e) {
+            log.error("[dev] failed to extract codex result from raw output: ${e}")
+            return null
+        }
+    }
+
+    extract_usage(raw: string) -> {
+        try {
+            var events = json.parse_lines(raw)
+            var completed = events.filter((e) -> e.type == "turn.completed")
+            var usage_data = completed.filter((e) -> e.usage != null)
+            var usage_index = usage_data.size() - 1
+
+            return if (usage_data.size() == 0) null else {
+                input_tokens: usage_data[usage_index].usage.input_tokens,
+                cached_input_tokens: usage_data[usage_index].usage.cached_input_tokens,
+                cache_write_input_tokens: usage_data[usage_index].usage.cache_write_input_tokens,
+                output_tokens: usage_data[usage_index].usage.output_tokens,
+                reasoning_output_tokens: usage_data[usage_index].usage.reasoning_output_tokens
+            }            
+        } catch (e) {
+            log.error("[dev] failed to extract codex usage from raw output: ${e}")
+            return null
+        }
+    }
+}
+

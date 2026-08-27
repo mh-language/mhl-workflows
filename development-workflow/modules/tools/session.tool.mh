@@ -1,0 +1,10 @@
+memory Memory { type: "kv" store: "memory" }
+memory TraceMemory { type: "jsonl" path: ".mhl/session_trace.jsonl" }
+
+export tool Session {
+    set(key: string, value: any) -> Memory.set(key, value)
+    get(key: string, defaultValue: any) -> Memory.get(key, defaultValue)
+    append(key: string, value: any) -> TraceMemory.append({key: key, value: value})
+    remove(key: string) -> Memory.remove(key)
+    clear() -> Memory.clear()
+}

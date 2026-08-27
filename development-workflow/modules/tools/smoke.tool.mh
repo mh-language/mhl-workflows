@@ -1,0 +1,33 @@
+use { RunConfig as config } from "run-config.tool.mh"
+
+export tool SmokeTool {
+    execute() : object -> {
+        var targetDir = config.get_target_dir()
+        var script = fs.join(targetDir, "init.sh")
+
+        if (!fs.exists(script)) {
+            log.error("[dev] init.sh was not found in ${targetDir}")
+            return {success: false, logPath: null}
+        }
+
+        try {
+            var result = cmd.exec("bash ${script}", timeout: 3m)   
+            var logPath = self.write_log(targetDir, script, result)
+            log.info("[dev] Smoke test results: ${logPath}")
+            return {success: true, logPath: logPath}
+        }
+        catch (ex) {
+            log.error("[dev] Error occurred while executing init.sh: ${ex}")
+            var logPath = self.write_log(targetDir, script, ex)
+            log.info("[dev] Smoke test results: ${logPath}")
+            return {success: false, logPath: logPath}
+        }
+    }
+
+    write_log(targetDir, script, result) -> {
+        var logPath = fs.join(targetDir, "logs", "smoke.log")
+        var logContent = "cwd: ${targetDir}\nCommand: bash ${script}\nOutput:\n${result}"
+        fs.write(logPath, logContent)
+        return logPath
+    }
+}
