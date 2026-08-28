@@ -2,30 +2,30 @@
 
 ![MHL Workflows](assets/repository-open-graph.png)
 
-Coleção de workflows escritos em [MHL](https://github.com/mh-language/mhl-core-runtime) para orquestrar agentes de IA em processos de engenharia de software reproduzíveis.
+A collection of workflows written in [MHL](https://github.com/mh-language/mhl-core-runtime) for orchestrating AI agents in reproducible software engineering processes.
 
-O repositório mantém a definição dos pipelines separada dos projetos em que eles atuam. Cada workflow pode reunir prompts, agentes, ferramentas, memória persistente e documentos de entrada próprios.
+The repository keeps pipeline definitions separate from the projects they operate on. Each workflow can bring together its own prompts, agents, tools, persistent memory, and input documents.
 
-## Workflows disponíveis
+## Available workflows
 
-| Workflow | Finalidade | Documentação |
+| Workflow | Purpose | Documentation |
 | --- | --- | --- |
-| `development-workflow` | Converte especificações em um plano de features e coordena preparação, implementação, testes, correções, replanejamento e commits com o Codex. | [Ver documentação](mhl.workflow.development/README.md) |
+| `development-workflow` | Converts specifications into a feature plan and coordinates setup, implementation, testing, fixes, replanning, and commits with Codex. | [View documentation](mhl.workflow.development/README.md) |
 
-Atualmente, `mhl.workflow.development/specs/` contém um exemplo completo para uma WebAPI de tarefas em ASP.NET Core e Postgres. Esses documentos são entradas demonstrativas e podem ser substituídos pelas especificações do projeto que será desenvolvido.
+Currently, `mhl.workflow.development/specs/` contains a complete example for a task-management Web API built with ASP.NET Core and Postgres. These documents are sample inputs and can be replaced with the specifications of the project to be developed.
 
-## Pré-requisitos
+## Prerequisites
 
-- [MHL CLI](https://github.com/mh-language/mhl-core-runtime) disponível como `mhl` no `PATH`;
-- [Codex CLI](https://github.com/openai/codex) instalado e autenticado;
-- Git e Bash;
-- ferramentas exigidas pelo projeto-alvo, como Docker, .NET, Node.js ou Python.
+- [MHL CLI](https://github.com/mh-language/mhl-core-runtime) available as `mhl` on the `PATH`;
+- [Codex CLI](https://github.com/openai/codex) installed and authenticated;
+- Git and Bash;
+- tools required by the target project, such as Docker, .NET, Node.js, or Python.
 
-## Instalando o MHL
+## Installing MHL
 
-O instalador oficial baixa o binário da [versão mais recente do MHL](https://github.com/mh-language/mhl-core-runtime/releases). Se o VS Code estiver instalado, ele também instala a extensão `mhl-language`, com destaque de sintaxe, diagnósticos e autocompletar.
+The official installer downloads the binary from the [latest MHL release](https://github.com/mh-language/mhl-core-runtime/releases). If VS Code is installed, it also installs the `mhl-language` extension, which provides syntax highlighting, diagnostics, and autocomplete.
 
-### macOS ou Linux
+### macOS or Linux
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/mh-language/mhl-core-runtime/main/install.sh | sh
@@ -37,46 +37,46 @@ curl -fsSL https://raw.githubusercontent.com/mh-language/mhl-core-runtime/main/i
 irm https://raw.githubusercontent.com/mh-language/mhl-core-runtime/main/install.ps1 | iex
 ```
 
-O binário é instalado em:
+The binary is installed in:
 
-- `~/.mhl/bin` no macOS e Linux;
-- `%LOCALAPPDATA%\mhl\bin` no Windows.
+- `~/.mhl/bin` on macOS and Linux;
+- `%LOCALAPPDATA%\mhl\bin` on Windows.
 
-O instalador adiciona esse diretório ao `PATH`. Abra um novo terminal após a instalação e confirme:
+The installer adds this directory to the `PATH`. Open a new terminal after installation and confirm:
 
 ```bash
 mhl version
 ```
 
-As plataformas atualmente suportadas são `linux-amd64`, `darwin-arm64` (macOS com Apple Silicon) e `windows-amd64`.
+The currently supported platforms are `linux-amd64`, `darwin-arm64` (macOS on Apple Silicon), and `windows-amd64`.
 
-### Instalação manual
+### Manual installation
 
-Também é possível baixar o binário e a extensão `.vsix` diretamente na [página de releases](https://github.com/mh-language/mhl-core-runtime/releases).
+You can also download the binary and the `.vsix` extension directly from the [releases page](https://github.com/mh-language/mhl-core-runtime/releases).
 
-Para compilar o projeto a partir do código-fonte:
+To build the project from source:
 
 ```bash
 git clone https://github.com/mh-language/mhl-core-runtime.git
 cd mhl-core-runtime
 
-# Runtime: gera src/mhl-runtime/dist/mhl
+# Runtime: generates src/mhl-runtime/dist/mhl
 cd src/mhl-runtime
 make build
 
-# Extensão do VS Code: gera mhl-language-<versão>.vsix
+# VS Code extension: generates mhl-language-<version>.vsix
 cd ../../vscode-mhl
 npm install
 npx @vscode/vsce package
 ```
 
-No VS Code, instale o `.vsix` por **Extensions → ⋯ → Install from VSIX...**. Como alternativa, execute `vscode-mhl/install.sh` a partir da raiz do código-fonte para compilar e instalar a extensão em uma única etapa.
+In VS Code, install the `.vsix` through **Extensions → ⋯ → Install from VSIX...**. Alternatively, run `vscode-mhl/install.sh` from the source root to build and install the extension in a single step.
 
-Consulte a [referência completa da linguagem](https://mh-language.github.io/mhl-core-runtime/reference.html) para conhecer agentes, ferramentas, memória, prompts, servidores MCP e pipelines.
+See the [complete language reference](https://mh-language.github.io/mhl-core-runtime/reference.html) to learn about agents, tools, memory, prompts, MCP servers, and pipelines.
 
-## Verificando os pré-requisitos
+## Verifying the prerequisites
 
-Confirme o ambiente:
+Verify the environment:
 
 ```bash
 mhl version
@@ -84,9 +84,9 @@ codex --version
 git --version
 ```
 
-## Início rápido
+## Quick start
 
-Clone o repositório, entre no workflow desejado e valide os arquivos MHL:
+Clone the repository, enter the desired workflow, and validate the MHL files:
 
 ```bash
 git clone https://github.com/mh-language/mhl-workflows.git
@@ -94,46 +94,46 @@ cd mhl-workflows/mhl.workflow.development
 mhl lint .
 ```
 
-Para executar o pipeline de desenvolvimento:
+To run the development pipeline:
 
 ```bash
 mhl run main.mh
 ```
 
-Caso uma execução tenha sido interrompida, use os checkpoints persistidos:
+If a run was interrupted, use the persisted checkpoints:
 
 ```bash
 mhl run main.mh --resume
 ```
 
-Antes da primeira execução, leia o [README do development workflow](mhl.workflow.development/README.md). Ele explica como preparar as especificações, quais arquivos serão gerados e quais alterações o agente poderá realizar.
+Before the first run, read the [development workflow README](mhl.workflow.development/README.md). It explains how to prepare the specifications, which files will be generated, and which changes the agent may make.
 
-## Estrutura do repositório
+## Repository structure
 
 ```text
 .
 ├── mhl.workflow.development/
-│   ├── main.mh              # pipeline principal
+│   ├── main.mh              # main pipeline
 │   ├── modules/
-│   │   ├── agents/          # integração com o Codex CLI
-│   │   ├── prompts/         # instruções de cada etapa
-│   │   └── tools/           # plano, estado, testes e handoff
+│   │   ├── agents/          # Codex CLI integration
+│   │   ├── prompts/         # instructions for each stage
+│   │   └── tools/           # plan, state, tests, and handoff
 │   └── specs/
-│       ├── active/          # especificações aprovadas para execução
-│       └── sources/         # material-fonte para gerar um plano
+│       ├── active/          # approved specifications for execution
+│       └── sources/         # source material used to generate a plan
 └── LICENSE
 ```
 
-## Adicionando um workflow
+## Adding a workflow
 
-Crie um diretório próprio com um `main.mh` e mantenha seus módulos, prompts e exemplos junto dele. O workflow deve poder ser validado a partir de seu diretório com:
+Create a dedicated directory with a `main.mh` file, and keep its modules, prompts, and examples alongside it. The workflow must be validatable from its directory with:
 
 ```bash
 mhl lint .
 ```
 
-Inclua também um README específico e adicione o novo workflow à tabela deste documento.
+Also include a dedicated README and add the new workflow to the table in this document.
 
-## Licença
+## License
 
-Este repositório é disponibilizado sob [CC0 1.0 Universal](LICENSE).
+This repository is released under [CC0 1.0 Universal](LICENSE).
