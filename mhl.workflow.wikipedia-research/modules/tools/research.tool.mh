@@ -1,0 +1,11 @@
+memory ResearchState { type: "json" path: ".mhl/research.json" }
+
+export tool ResearchMemory {
+    save_query(query: string) -> ResearchState.set("query", query)
+
+    save_article(article: string) -> ResearchState.set("article", article)
+
+    save_report(report: string) -> ResearchState.set("report", report)
+
+    get_article() : string -> ResearchState.get("article", "{}")
+}

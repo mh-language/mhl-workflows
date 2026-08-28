@@ -1,0 +1,50 @@
+use {ResearchMemory as memory} from "modules/tools/research.tool.mh"
+use {Researcher as researcher} from "modules/agents/researcher.agent.mh"
+
+// The server is started by MHL on demand through stdio.
+mcp_server wikipedia {
+    transport: "stdio"
+    protocol: "2025-06-18"
+    command: "docker"
+    args: [
+        "run",
+        "-i",
+        "--rm",
+        "mcp/wikipedia-mcp"
+    ]
+}
+
+prompt ResearchPrompt(
+    article_title: string,
+    article_content: string) from "modules/prompts/research.prompt.md"
+
+pipeline ResearchPipeline {
+    input title: string
+
+    step GetArticle {
+        log.info("[research] Getting Wikipedia article: ${title}")
+
+        var article = wikipedia.call(
+            tool: "get_article",
+            arguments: {
+                title: title
+            })
+
+        memory.save_query(title)
+        memory.save_article(json.stringify(article))
+    }
+
+    step Synthesize {
+        var article_content = memory.get_article()
+        log.info("[research] Preparing Wikipedia-based report...")
+
+        var report = researcher.run(
+            prompt: ResearchPrompt(
+                article_title: title,
+                article_content: article_content))
+
+        memory.save_report(report)
+        fs.write("wikipedia-report.md", report)
+        log.info("[research] Report written to wikipedia-report.md")
+    }
+}

@@ -1,0 +1,42 @@
+export agent Researcher {
+    engine: "cli/codex"
+    command: "codex"
+    log: ".mhl/logs/researcher.log"
+    args: [
+        "exec",
+        "--approve-for-me",
+        "--json",
+        "--",
+        "${prompt}"
+    ]
+
+    // Exposes the Wikipedia MCP server to the research agent for follow-up
+    // lookups when the supplied article needs additional context.
+    mcp_servers: [wikipedia]
+
+    retry: {
+        max_attempts: 2
+        delay: 5s
+    }
+
+    after: (mcp, tools, result) -> {
+        return ResearchResultParser.parse(result)
+    }
+}
+
+export tool ResearchResultParser {
+    parse(raw: string) : string -> {
+        try {
+            var events = json.parse_lines(raw)
+            var completed = events.filter((e) -> e.type == "item.completed")
+            var messages = completed.filter((e) -> e.item.type == "agent_message")
+            if (messages.size() == 0) {
+                return raw
+            }
+            return messages[messages.size() - 1].item.text
+        } catch (e) {
+            log.warn("[research] Could not parse Codex JSON events; preserving raw result: ${e}")
+            return raw
+        }
+    }
+}

@@ -11,6 +11,7 @@ The repository keeps pipeline definitions separate from the projects they operat
 | Workflow | Purpose | Documentation |
 | --- | --- | --- |
 | `development-workflow` | Converts specifications into a feature plan and coordinates setup, implementation, testing, fixes, replanning, and commits with Codex. | [View documentation](mhl.workflow.development/README.md) |
+| `research-workflow` | Retrieves Wikipedia articles through the `wikipedia-mcp` MCP server and produces a structured Markdown brief with Codex. | [View documentation](mhl.workflow.research/README.md) |
 
 Currently, `mhl.workflow.development/specs/` contains a complete example for a task-management Web API built with ASP.NET Core and Postgres. These documents are sample inputs and can be replaced with the specifications of the project to be developed.
 
@@ -121,6 +122,10 @@ Before the first run, read the [development workflow README](mhl.workflow.develo
 │   └── specs/
 │       ├── active/          # approved specifications for execution
 │       └── sources/         # source material used to generate a plan
+├── mhl.workflow.research/
+│   ├── main.mh              # literature search and synthesis pipeline
+│   ├── modules/              # MCP-backed research prompt, agent, and state
+│   └── README.md
 └── LICENSE
 ```
 
