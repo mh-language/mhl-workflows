@@ -9,33 +9,7 @@ The workflow supports both new projects and existing applications. In a new proj
 
 ## Overview
 
-```mermaid
-flowchart TD
-  subgraph Prepare
-    direction LR
-    A[Load plan] --> B[Prepare project and Git]
-    B --> C[Run init.sh]
-    C -->|failure| D[Fix setup]
-    D --> C  
-  end
-
-
-  subgraph Implement
-    direction TB
-    C -->|success| E[Select ready feature]
-    E --> F[Implement with Codex]
-    F --> G[Verify feature]
-    G -->|success| H[Update progress.txt and create commit]
-    H --> I{Are there pending features?}
-    I -->|yes| E
-    G -->|failure| K{Failed 3 times?}
-    K -->|no| F
-    K -->|yes| L[Propose and validate a new plan]
-    L --> E
-  end
-
-  I -->|no| J((End))
-```
+![Development workflow](assets/workflow-diagram-en.png)
 
 The pipeline processes at most 15 iterations and retains per-stage checkpoints for seven days. Each feature also has its own retry and replanning limits.
 
