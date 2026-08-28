@@ -10,9 +10,9 @@ O repositório mantém a definição dos pipelines separada dos projetos em que 
 
 | Workflow | Finalidade | Documentação |
 | --- | --- | --- |
-| `development-workflow` | Converte especificações em um plano de features e coordena preparação, implementação, testes, correções, replanejamento e commits com o Codex. | [Ver documentação](development-workflow/README.md) |
+| `development-workflow` | Converte especificações em um plano de features e coordena preparação, implementação, testes, correções, replanejamento e commits com o Codex. | [Ver documentação](mhl.workflow.development/README.md) |
 
-Atualmente, `development-workflow/specs/` contém um exemplo completo para uma WebAPI de tarefas em ASP.NET Core e Postgres. Esses documentos são entradas demonstrativas e podem ser substituídos pelas especificações do projeto que será desenvolvido.
+Atualmente, `mhl.workflow.development/specs/` contém um exemplo completo para uma WebAPI de tarefas em ASP.NET Core e Postgres. Esses documentos são entradas demonstrativas e podem ser substituídos pelas especificações do projeto que será desenvolvido.
 
 ## Pré-requisitos
 
@@ -90,7 +90,7 @@ Clone o repositório, entre no workflow desejado e valide os arquivos MHL:
 
 ```bash
 git clone https://github.com/mh-language/mhl-workflows.git
-cd mhl-workflows/development-workflow
+cd mhl-workflows/mhl.workflow.development
 mhl lint .
 ```
 
@@ -106,13 +106,13 @@ Caso uma execução tenha sido interrompida, use os checkpoints persistidos:
 mhl run main.mh --resume
 ```
 
-Antes da primeira execução, leia o [README do development workflow](development-workflow/README.md). Ele explica como preparar as especificações, quais arquivos serão gerados e quais alterações o agente poderá realizar.
+Antes da primeira execução, leia o [README do development workflow](mhl.workflow.development/README.md). Ele explica como preparar as especificações, quais arquivos serão gerados e quais alterações o agente poderá realizar.
 
 ## Estrutura do repositório
 
 ```text
 .
-├── development-workflow/
+├── mhl.workflow.development/
 │   ├── main.mh              # pipeline principal
 │   ├── modules/
 │   │   ├── agents/          # integração com o Codex CLI

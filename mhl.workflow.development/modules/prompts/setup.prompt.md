@@ -9,19 +9,35 @@ The Specification handoff is authoritative for scope, feature boundaries, priori
 
 Determine whether the target is:
 
-  - **Greenfield:** no existing application. Use app/<descriptive-name> as the target and create the minimal project structure required by the approved handoff.
-  
-  - **Brownfield:** an application already exists. Inspect only the metadata needed to prepare the approved work: the top-level layout, README, existing docs/ADRs, build manifests, bootstrap or verification scripts, and progress.txt. Reuse the established target and verification command when they exist. Do not inventory the whole source tree.
+- **Greenfield:** no existing application. Use `app/<descriptive-name>` as the target and create the minimal project structure.
 
-  The handoff's features are already sliced and ordered. Do not re-plan the existing app, reinterpret the readiness slices, merge or split features, change priorities, change dependencies, or add unrelated scope.
+- **Brownfield:** an application already exists. 
+  - Inspect only the metadata needed to plan the requested delta: 
+    - the top-level layout, 
+    -README, 
+    - build manifests, 
+    - existing docs/ADRs, 
+    - bootstrap or verification scripts, and 
+    - `progress.txt`. 
+  - Reuse the established target and verification command. 
+  - Do not inventory the whole source tree or re-plan the existing app.
+
+The handoff's features are already sliced and ordered. Do not re-plan the existing app, reinterpret the readiness slices, merge or split features, change priorities, change dependencies, or add unrelated scope.
   
 ## 2. Prepare Git
 
-Initialize Git if necessary. Never work directly on main or master. Reuse an existing non-default branch when resuming; otherwise create `<YYYYMMDDHHMM>-<descriptive-name>`, using the current UTC timestamp. Keep the target directory and the harness repository boundary clear. The target directory reported at the end is the directory in which the harness will look for init.sh, verify-feature.sh, progress.txt, and the project's verification command.
+> [!WARNING]
+> Initialize Git if necessary. Never work directly on main or master. 
+
+- Reuse an existing non-default branch when resuming; otherwise create `<YYYYMMDDHHMM>-<descriptive-name>`, using the current UTC timestamp. 
+- Keep the target directory and the harness repository boundary clear. 
+- The target directory reported at the end is the directory in which the harness will look for `init.sh`, `verify-feature.sh`, `progress.txt`, and the project's verification command.
   
 ## 3. Scaffold deterministic setup
 
-  - init.sh and verify-feature.sh MUST live directly inside the exact directory reported as `TARGET_DIR` — never at the repo root, a parent directory, or another nesting level. The harness locates them by joining the reported `TARGET_DIR` with these exact filenames; a script placed anywhere else is invisible to it and silently skipped in favor of a weaker fallback. If setup that lives outside `TARGET_DIR` is required (for example, docker-compose.yml or infrastructure shared with siblings), reference it from inside these scripts via a relative path 
+For the target directory, ensure that the following are present and executable:
+
+  - `init.sh` and `verify-feature.sh` MUST live directly inside the exact directory reported as `TARGET_DIR` — never at the repo root, a parent directory, or another nesting level. The harness locates them by joining the reported `TARGET_DIR` with these exact filenames; a script placed anywhere else is invisible to it and silently skipped in favor of a weaker fallback. If setup that lives outside `TARGET_DIR` is required (for example, docker-compose.yml or infrastructure shared with siblings), reference it from inside these scripts via a relative path 
   - the scripts themselves still belong in `TARGET_DIR`.
   - Ensure an idempotent `init.sh` prepares, builds, and when applicable starts the project.
   - Ensure `init.sh` is safe to run repeatedly and returns non-zero when setup, build, or readiness fails.

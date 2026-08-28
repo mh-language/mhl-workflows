@@ -19,7 +19,7 @@ export agent Codex {
         delay: 5s
     }
 
-    after: (mcp, tool, result) -> {
+    after: (mcp, tools, result) -> {
         var usage = CodexResultParser.extract_usage(result)
         log("[dev] codex usage: ${json.stringify(usage)}")
     }
@@ -43,7 +43,9 @@ export agent CodexWithoutSchema {
         delay: 5s
     }
 
-    after: (mcp, tool, result) -> {
+    
+
+    after: (mcp, tools, result) -> {
         var usage = CodexResultParser.extract_usage(result)
         log("[dev] codex usage: ${json.stringify(usage)}")
     }

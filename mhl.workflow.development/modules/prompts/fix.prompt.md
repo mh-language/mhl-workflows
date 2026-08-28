@@ -5,29 +5,25 @@ description: "repair the current feature after the harness's deterministic verif
 
 ## Fix one feature
 
-Deterministic verification FAILED for the feature below. Repair only this feature so the
-verification command passes. Do not start other features or do unrelated cleanup.
+Deterministic verification FAILED for the feature below. Repair only this feature so the verification command passes. Do not start other features or do unrelated cleanup.
+
+## Feature to fix
 
 <feature id="${id}" title="${title}">
-
   <implementation-context>
-
     ${feature_context}
-
   </implementation-context>
 
   <design-context>
-
     ${design_context}
-
   </design-context>
 
   <verification-failure>
-
     ${verify_failure}
-
   </verification-failure>
 </feature>
+
+## Instructions
 
 - Read the failure above and only the relevant part of the verification output.
 - Make the smallest change that makes the verification pass; keep the feature's scope.

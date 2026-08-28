@@ -9,14 +9,18 @@ The current development plan may no longer fit the observed repository state. De
 verification kept failing on the same feature and the harness is escalating from a local fix
 to a plan revision.
 
-<observation>${observation}</observation>
+## Observation
+
+<observation>
+  ${observation}
+</observation>
 
 <persisted-observations>
-${observations}
+  ${observations}
 </persisted-observations>
 
 <current-plan>
-${current_plan}
+  ${current_plan}
 </current-plan>
 
 ## What to do
@@ -25,7 +29,31 @@ Consider at least two materially different responses to the observation and choo
 Write a single JSON OBJECT to the file `${proposal_path}` (a real file, written with your
 file-write tool — do NOT escape it or put it inside the response) with this shape:
 
-{"reason":"why the global plan must change","alternativesConsidered":["alternative A","alternative B; selected because ..."],"basedOnObservationIds":["OBS-1"],"revisedFeatures":[{"id":1,"title":"...","priority":1,"dependsOn":[],"description":"...","references":[],"implementationContext":{"requirements":[],"decisions":[],"constraints":[],"files":[],"acceptance":[]},"status":"pending"}]}
+```json
+{
+  "reason": "...",
+  "alternativesConsidered": ["...", "..."],
+  "basedOnObservationIds": ["..."],
+  "revisedFeatures": [
+    {
+      "id": 1,
+      "title": "...",
+      "priority": 1,
+      "dependsOn": [],
+      "description": "...",
+      "references": [],
+      "implementationContext": {
+        "requirements": [],
+        "decisions": [],
+        "constraints": [],
+        "files": [],
+        "acceptance": []
+      },
+      "status": "pending"
+    }
+  ]
+}
+```
 
 `revisedFeatures` is the COMPLETE replacement plan. Rules:
 
