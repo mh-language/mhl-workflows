@@ -3,27 +3,38 @@ use { RunConfig as config } from "run-config.tool.mh"
 memory Memory { type: "json" path: ".mhl/feature_list.json" }
 memory ObsMemory { type: "json" path: ".mhl/plan_observations.json" }
 
+type Feature = {
+    id: number,
+    title: string,
+    priority: number,
+    dependsOn: number[],
+    description: string,
+    references: string[],
+    implementationContext: object,
+    status: string
+}
+
 export tool FeatureStore {
     // Get the list of features from memory
-    get() : object[] -> Memory.get("features", null)
+    get() : Feature[] -> Memory.get("features", []) ?? []
 
     // Set the list of features in memory
-    set(features) -> Memory.set("features", features)
+    set(features: Feature[]) -> Memory.set("features", features)
 
     // Check if there are any pending features
     has_pending_features() : boolean -> {
-        var features = self.get() ?? []
+        const features = self.get()
         return features.any((f) -> f.status == "pending")
     }
 
     // Mark a feature as done by id, persisting the updated list
-    mark_done(id) : boolean -> {
-        var features = self.get() ?? []
+    mark_done(id: number) : boolean -> {
+        const features = self.get()
 
         var updated = false
         var result = []
         for (var f in features) {
-            var status = if (f.id == id) "done" else f.status
+            const status = if (f.id == id) "completed" else f.status
             if (f.id == id) {
                 updated = true
             }
@@ -40,7 +51,7 @@ export tool FeatureStore {
             }]
         }
 
-        if (updated == false) {
+        if (!updated) {
             log.info("[dev] mark_done: feature ${id} not found in store.")
             return false
         }
@@ -51,19 +62,24 @@ export tool FeatureStore {
     }
 
     // Accept a parsed development-plan object ({"features":[...]}), cap it to
-    // max_features (dropping dependsOn ids cut by the cap) and persist. Mirrors
+    // max_features (preserving the dependency closure) and persist. Mirrors
     // import_from without the file read; used by the Plan step's Codex fallback.
     set_plan(plan) : boolean -> {
         if (plan == null) return false
 
-        var raw = plan?.features ?? []
+        const raw = self.extract_features(plan)
         if (raw.is_empty()) {
             log.info("[dev] set_plan: parsed plan had no 'features' array.")
             return false
         }
 
-        var capped = self.cap_features(raw, config.max_features())
-        if (capped.size() == 0) {
+        if (!self.validate_features(raw)) {
+            log.info("[dev] set_plan: feature list failed structural validation.")
+            return false
+        }
+
+        const capped = self.cap_features(raw, config.max_features())
+        if (capped.is_empty()) {
             log.info("[dev] set_plan: feature list was empty after capping.")
             return false
         }
@@ -73,14 +89,15 @@ export tool FeatureStore {
     }
 
     pick_next_feature() : object -> {
-        var features = self.get() ?? []
+        const features = self.get()
 
-        var passedIds = features.filter((f) -> f.status == "done").map((f) -> f.id)
+        const passed_ids = features
+            .filter((f) -> self.is_completed(f.status))
+            .map((f) -> f.id)
 
-        var ready = features
-            .filter((f) -> f.status == "pending" && (f.dependsOn ?? []).all((d) -> !passedIds.contains(d)))
-            .sort_by((f) -> f.id)
-            .sort_by((f) -> f.priority)
+        const ready = features
+            .filter((f) -> f.status == "pending" && (f.dependsOn ?? []).all((d) -> passed_ids.contains(d)))
+            .sort_by((f) -> f.priority * 1000000 + f.id)
 
         return if (ready.is_empty()) null else ready[0]
     }
@@ -94,7 +111,7 @@ export tool FeatureStore {
 
     // reset_plan deletes the plan / revision-proposal files to reset the feature store
     reset_plan() -> {
-        for (var planfile in [".mhl/plan.json", ".mhl/plan_revision.json"]) {
+        for (var planfile in [".mhl/plan_revision.json"]) {
             try {
                 if (fs.exists(planfile)) {
                     log.info("[dev] Deleting plan file: ${planfile}")
@@ -108,40 +125,37 @@ export tool FeatureStore {
 
     // Try to import a preview plan
     try_import_preview_plan() : boolean -> {
-        var candidates = self.get_candidates_paths(config.docs_folder())
+        const candidates = config.get_document_candidates("40-development-plan.json")
 
         var i = 0
         var found = false
         var result = false
-        while (i < candidates.size() && found == false) {
-            var outcome = self.import_from(candidates[i], config.max_features())
-            if (outcome != null) {
-                found = true
-                result = outcome
+        while (i < candidates.size() && !found) {
+            if (fs.exists(candidates[i])) {
+                const outcome = self.import_from(candidates[i], config.max_features())
+                if (outcome) {
+                    found = true
+                    result = true
+                }
             }
             i = i + 1
         }
         return result
     }    
 
-    // Get the list of candidate paths for the development plan
-    get_candidates_paths(docsFolder: string) : string[] -> {
-        var raw = [
-            "${docsFolder}/40-development-plan.json",
-            "${docsFolder}/active/40-development-plan.json",
-            "specs/active/40-development-plan.json"
-        ]
-        return raw.unique()
-    }
-
     // Import features from a given path, capping the number of features to maxFeatures
     import_from(path: string, maxFeatures: number) : boolean -> {
 
         try {
-            var raw = fs.read(path)
-            var plan = json.parse(raw)
-            var features = self.cap_features(plan?.features ?? [], maxFeatures)
-            if (features.size() == 0) {
+            const raw = fs.read(path)
+            const plan = json.parse(raw)
+            const raw_features = self.extract_features(plan)
+            if (!self.validate_features(raw_features)) {
+                log.info("[dev] published handoff '${path}' was invalid.")
+                return false
+            }
+            const features = self.cap_features(raw_features, maxFeatures)
+            if (features.is_empty()) {
                 log.info("[dev] published handoff '${path}' was invalid or empty.")
                 return false
             }
@@ -153,19 +167,41 @@ export tool FeatureStore {
         }
     }  
 
-    // Cap the number of features to maxFeatures, preserving dependencies and sorting by priority
-    cap_features(features: object[], maxFeatures: number) : object[] -> {
-        var sorted = features.sort_by((f) -> f.priority * 1000000 + f.id)
+    // Cap the number of features to maxFeatures without cutting required dependencies.
+    cap_features(features: Feature[], maxFeatures: number) : Feature[] -> {
+        if (maxFeatures <= 0) return []
+
+        const sorted = features.sort_by((f) -> f.priority * 1000000 + f.id)
         var capped = sorted[..maxFeatures]
 
-        var cappedIds = []
+        var capped_ids = []
         for (var f in capped) {
-            cappedIds += [f.id]
+            capped_ids += [f.id]
         }
+
+        // Expand the selection to include every transitive prerequisite. If the
+        // configured cap cannot contain the closure, fail closed rather than
+        // making a feature appear independent of its prerequisite.
+        var changed = true
+        while (changed) {
+            changed = false
+            for (var f in capped) {
+                for (var dep in f.dependsOn ?? []) {
+                    if (!capped_ids.contains(dep)) {
+                        const dependency = features.find((candidate) -> candidate.id == dep)
+                        if (dependency == null) return []
+                        capped += [dependency]
+                        capped_ids += [dep]
+                        changed = true
+                    }
+                }
+            }
+        }
+
+        if (capped.size() > maxFeatures) return []
 
         var result = []
         for (var f in capped) {
-            var deps = (f.dependsOn ?? []).filter((d) -> cappedIds.contains(d))
             result += [
             {
                 "id": f.id, 
@@ -174,7 +210,7 @@ export tool FeatureStore {
                 "implementationContext": f.implementationContext,
                 "title": f.title, 
                 "priority": f.priority, 
-                "dependsOn": deps, 
+                "dependsOn": f.dependsOn ?? [],
                 "status": "pending"
             }]
         }
@@ -186,9 +222,9 @@ export tool FeatureStore {
     // Append a plan observation; returns its generated id (OBS-N).
     record_observation(kind: string, feature_id, summary: string, evidence: string) : string -> {
         var existing = ObsMemory.get("observations", null) ?? []
-        var n = existing.size() + 1
-        var obs_id = "OBS-${n}"
-        var entry = {
+        const n = existing.size() + 1
+        const obs_id = "OBS-${n}"
+        const entry = {
             "id": obs_id,
             "kind": kind,
             "feature_id": feature_id,
@@ -198,6 +234,38 @@ export tool FeatureStore {
         existing += [entry]
         ObsMemory.set("observations", existing)
         return obs_id
+    }
+
+    // Accept both the canonical object form and the legacy array form while
+    // normalizing every imported plan into the same internal representation.
+    extract_features(plan: any) : Feature[] -> {
+        return if (is_array(plan)) plan else (plan?.features ?? [])
+    }
+
+    is_completed(status: string) : boolean ->
+        // Accept the old persisted token during migration, but only emit
+        // "completed" from this workflow.
+        status == "completed" || status == "done"
+
+    validate_features(features: Feature[]) : boolean -> {
+        if (features == null || features.is_empty()) return false
+
+        var ids = []
+        for (var f in features) {
+            if (!is_object(f) || f.id == null || f.id <= 0 || f.id % 1 != 0) return false
+            if (ids.contains(f.id)) return false
+            if (f.title == null || f.description == null || f.priority == null) return false
+            if (f.dependsOn != null && !is_array(f.dependsOn)) return false
+            ids += [f.id]
+        }
+
+        for (var f in features) {
+            for (var dep in f.dependsOn ?? []) {
+                if (!ids.contains(dep) || dep == f.id) return false
+            }
+        }
+
+        return !self.has_cycle(features)
     }
 
     // Human-readable list of recorded observations for the replan prompt.
@@ -219,12 +287,12 @@ export tool FeatureStore {
 
         var resolved = []
         var changed = true
-        while (changed == true) {
+        while (changed) {
             changed = false
             var next_remaining = []
             for (var r in remaining) {
-                var deps = r.dependsOn ?? []
-                var unmet = deps.filter((d) -> !resolved.contains(d))
+                const deps = r.dependsOn ?? []
+                const unmet = deps.filter((d) -> !resolved.contains(d))
                 if (unmet.is_empty()) {
                     resolved += [r.id]
                     changed = true
@@ -263,10 +331,10 @@ export tool FeatureStore {
         }
 
         // 2. every already-completed feature must survive the revision
-        var current = self.get() ?? []
+        const current = self.get()
         var done_ids = []
         for (var c in current) {
-            if (c.status == "done") {
+            if (self.is_completed(c.status)) {
                 done_ids += [c.id]
             }
         }
@@ -278,7 +346,7 @@ export tool FeatureStore {
 
         // 3. dependsOn must reference known ids, no self-deps, no cycles
         for (var f in proposed) {
-            var deps = f.dependsOn ?? []
+            const deps = f.dependsOn ?? []
             for (var dep in deps) {
                 if (dep == f.id) {
                     return {"success": false, "error": "feature ${f.id} depends on itself"}
@@ -288,14 +356,14 @@ export tool FeatureStore {
                 }
             }
         }
-        if (self.has_cycle(proposed) == true) {
+        if (self.has_cycle(proposed)) {
             return {"success": false, "error": "dependency graph has a cycle"}
         }
 
-        // 4. normalize: completed features stay done, everything else pending
+        // 4. normalize: completed features stay completed, everything else pending
         var normalized = []
         for (var f in proposed) {
-            var status = if (done_ids.contains(f.id)) "done" else "pending"
+            const status = if (done_ids.contains(f.id)) "completed" else "pending"
             normalized += [
             {
                 "id": f.id,
@@ -310,12 +378,12 @@ export tool FeatureStore {
         }
 
         // 5. cap to max_features (completed first, then by priority), sanitize deps
-        var ordered = normalized
+        const ordered = normalized
             .sort_by((f) -> f.priority * 1000 + f.id)
-            .sort_by((f) -> if (f.status == "done") 0 else 1)
-        var capped = ordered[..config.max_features()]
+            .sort_by((f) -> if (self.is_completed(f.status)) 0 else 1)
+        const capped = ordered[..config.max_features()]
 
-        var kept_ids = capped.map((f) -> f.id)
+        const kept_ids = capped.map((f) -> f.id)
         for (var d in done_ids) {
             if (!kept_ids.contains(d)) {
                 return {"success": false, "error": "too many features; completed feature ${d} would be cut"}
@@ -324,7 +392,11 @@ export tool FeatureStore {
 
         var final = []
         for (var f in capped) {
-            var kept_deps = f.dependsOn.filter((d) -> kept_ids.contains(d))
+            for (var dep in f.dependsOn) {
+                if (!kept_ids.contains(dep)) {
+                    return {"success": false, "error": "feature ${f.id} would lose dependency ${dep} at max_features"}
+                }
+            }
             final += [
             {
                 "id": f.id,
@@ -333,7 +405,7 @@ export tool FeatureStore {
                 "implementationContext": f.implementationContext,
                 "title": f.title,
                 "priority": f.priority,
-                "dependsOn": kept_deps,
+                "dependsOn": f.dependsOn,
                 "status": f.status
             }]
         }
@@ -347,7 +419,7 @@ export tool FeatureStore {
 
     // Drop a stale proposal so it can't satisfy the next replan attempt.
     clear_revision_proposal() -> {
-        var path = self.revision_proposal_path()
+        const path = self.revision_proposal_path()
         try {
             if (fs.exists(path)) {
                 fs.delete(path)
@@ -359,19 +431,19 @@ export tool FeatureStore {
 
     // Current persisted feature list as raw JSON, for the replan prompt.
     current_plan_json() : string -> {
-        var path = ".mhl/feature_list.json"
+        const path = ".mhl/feature_list.json"
         return if (fs.exists(path)) fs.read(path) else "(no plan on disk)"
     }
 
     // Load the driver-written revision file and apply it. Returns { success, error }.
     apply_revision_file() : object -> {
-        var path = self.revision_proposal_path()
+        const path = self.revision_proposal_path()
         if (!fs.exists(path)) {
             return {"success": false, "error": "Codex did not write ${path}"}
         }
-        var revision = json.parse(fs.read(path))
-        var outcome = self.apply_revision(revision)
-        if (outcome.success == true) {
+        const revision = json.parse(fs.read(path))
+        const outcome = self.apply_revision(revision)
+        if (outcome.success) {
             log.info("[dev] Applied plan revision: ${revision.reason}")
         }
         return outcome
@@ -379,7 +451,7 @@ export tool FeatureStore {
 
     // Read all files in the source folder and concatenate their contents into a single string
     read_files_in_source_folder(path: string) : string -> {
-        var files = fs.list(path)
+        const files = fs.list(path)
         if (files.is_empty()) { return "" }
         return files.map((file) -> fs.read(file)).join("\n") + "\n"
     }         

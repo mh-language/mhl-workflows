@@ -8,6 +8,9 @@ description: "repair the target setup after the harness's deterministic baseline
 The harness already ran the baseline smoke test and reported a failure. Repair only the
 environment or setup responsible for that failure; do not start implementing the feature.
 
+The target directory is `${target_dir}`. Work there and keep the repair limited to its
+bootstrap setup.
+
 - Inspect the reported failure and only the relevant excerpt of `${log_path}`.
 - Fix `init.sh`, missing prerequisites, paths, permissions, or equivalent bootstrap setup.
 - Run `./init.sh` in the target directory to confirm the repair.

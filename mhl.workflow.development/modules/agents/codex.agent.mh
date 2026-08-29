@@ -1,5 +1,3 @@
-use {CodexSchemas as schemas} from "codex.schemas.mh"
-
 export agent Codex {
     engine: "cli/codex"
     command: "codex"
@@ -20,7 +18,7 @@ export agent Codex {
     }
 
     after: (mcp, tools, result) -> {
-        var usage = CodexResultParser.extract_usage(result)
+        const usage = CodexResultParser.extract_usage(result)
         log("[dev] codex usage: ${json.stringify(usage)}")
     }
 }
@@ -46,7 +44,7 @@ export agent CodexWithoutSchema {
     
 
     after: (mcp, tools, result) -> {
-        var usage = CodexResultParser.extract_usage(result)
+        const usage = CodexResultParser.extract_usage(result)
         log("[dev] codex usage: ${json.stringify(usage)}")
     }
 }
@@ -54,10 +52,10 @@ export agent CodexWithoutSchema {
 export tool CodexResultParser {
     parse(raw: string) -> {
         try {
-            var events = json.parse_lines(raw)
-            var completed = events.filter((e) -> e.type == "item.completed")
-            var agentMessages = completed.filter((e) -> e.item.type == "agent_message")
-            return agentMessages[agentMessages.size() - 1].item.text
+            const events = json.parse_lines(raw)
+            const completed = events.filter((e) -> e.type == "item.completed")
+            const agent_messages = completed.filter((e) -> e.item.type == "agent_message")
+            return agent_messages[agent_messages.size() - 1].item.text
         } catch (e) {
             log.error("[dev] failed to extract codex result from raw output: ${e}")
             return null
@@ -66,12 +64,12 @@ export tool CodexResultParser {
 
     extract_usage(raw: string) -> {
         try {
-            var events = json.parse_lines(raw)
-            var completed = events.filter((e) -> e.type == "turn.completed")
-            var usage_data = completed.filter((e) -> e.usage != null)
-            var usage_index = usage_data.size() - 1
+            const events = json.parse_lines(raw)
+            const completed = events.filter((e) -> e.type == "turn.completed")
+            const usage_data = completed.filter((e) -> e.usage != null)
+            const usage_index = usage_data.size() - 1
 
-            return if (usage_data.size() == 0) null else {
+            return if (usage_data.is_empty()) null else {
                 input_tokens: usage_data[usage_index].usage.input_tokens,
                 cached_input_tokens: usage_data[usage_index].usage.cached_input_tokens,
                 cache_write_input_tokens: usage_data[usage_index].usage.cache_write_input_tokens,
@@ -84,4 +82,3 @@ export tool CodexResultParser {
         }
     }
 }
-

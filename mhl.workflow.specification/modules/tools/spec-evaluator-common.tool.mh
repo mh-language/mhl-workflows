@@ -7,6 +7,21 @@ export tool SpecEvaluatorCommon {
 
     list(value: any) : any[] -> if (!is_array(value)) [] else value
 
+    valid_id(value: any) : boolean -> is_string(value) && value.trim() != ""
+
+    array_type_violation(value: any, field: string, code: string) : string[] -> {
+        if (value == null || is_array(value)) return []
+        return [code + ": " + field + " must be an array"]
+    }
+
+    missing_id_violations(items: any[], code: string, kind: string) : string[] -> {
+        var out = []
+        for (var item in self.list(items)) {
+            if (!self.valid_id(item?.id)) out += [code + ": " + kind + " id is required and must be a non-empty string"]
+        }
+        return out
+    }
+
     result(violations: string[]) : object -> { passed: violations.is_empty(), violations: violations }
 
     blank(value: any) : boolean -> is_null(value) || (is_string(value) && value.trim() == "")

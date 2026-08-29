@@ -7,7 +7,15 @@ export tool SrsEvaluator {
         if (srs == null) {
             return common.result(["SRS_PROPOSAL_MISSING: the SRS proposal is missing or not valid JSON"])
         }
+        if (!is_object(srs)) {
+            return common.result(["SRS_PROPOSAL_INVALID: the SRS proposal must be a JSON object"])
+        }
         var v = []
+        v += common.array_type_violation(srs?.functionalRequirements, "functionalRequirements", "SRS_FUNCTIONAL_REQUIREMENTS_INVALID")
+        v += common.array_type_violation(srs?.qualityRequirements, "qualityRequirements", "SRS_QUALITY_REQUIREMENTS_INVALID")
+        v += common.array_type_violation(srs?.acceptanceCriteria, "acceptanceCriteria", "SRS_ACCEPTANCE_CRITERIA_INVALID")
+        v += common.array_type_violation(srs?.interfaces, "interfaces", "SRS_INTERFACES_INVALID")
+        v += common.array_type_violation(srs?.dataRules, "dataRules", "SRS_DATA_RULES_INVALID")
         if (common.str(srs?.schema) != self.schema()) {
             v += ["SRS_SCHEMA_UNKNOWN: expected schema " + self.schema() + ", got " + common.str(srs?.schema)]
         }
@@ -19,9 +27,16 @@ export tool SrsEvaluator {
         for (var r in common.list(srs?.functionalRequirements)) requirements += [r]
         for (var r in common.list(srs?.qualityRequirements)) requirements += [r]
         var req_ids = common.ids_of(requirements)
+        v += common.missing_id_violations(requirements, "SRS_REQUIREMENT_ID_MISSING", "requirement")
         v = common.dup_violations(v, req_ids, "SRS_REQUIREMENT_ID_DUPLICATE", "requirement")
 
         var ac_ids = common.ids_of(common.list(srs?.acceptanceCriteria))
+        v += common.missing_id_violations(srs?.acceptanceCriteria, "SRS_ACCEPTANCE_ID_MISSING", "acceptance criterion")
+        v += common.missing_id_violations(srs?.interfaces, "SRS_INTERFACE_ID_MISSING", "interface")
+        v += common.missing_id_violations(srs?.dataRules, "SRS_DATA_RULE_ID_MISSING", "data rule")
+        v = common.dup_violations(v, ac_ids, "SRS_ACCEPTANCE_ID_DUPLICATE", "acceptance criterion")
+        v = common.dup_violations(v, common.ids_of(common.list(srs?.interfaces)), "SRS_INTERFACE_ID_DUPLICATE", "interface")
+        v = common.dup_violations(v, common.ids_of(common.list(srs?.dataRules)), "SRS_DATA_RULE_ID_DUPLICATE", "data rule")
         var covered_goals = []
         for (var r in requirements) {
             for (var g in common.list(r?.goalIds)) covered_goals += [g]
@@ -34,6 +49,13 @@ export tool SrsEvaluator {
 
         for (var r in requirements) {
             var rid = common.str(r?.id)
+            if (!is_array(r?.goalIds)) v += ["SRS_REQUIREMENT_GOALS_INVALID: requirement " + rid + " goalIds must be an array"]
+            for (var gid in common.list(r?.goalIds)) {
+                if (!common.list(accepted_goal_ids).contains(gid)) {
+                    v += ["SRS_GOAL_REFERENCE_DANGLING: requirement " + rid + " references unknown goal " + common.str(gid)]
+                }
+            }
+            if (!is_array(r?.acceptanceIds)) v += ["SRS_REQUIREMENT_ACCEPTANCE_IDS_INVALID: requirement " + rid + " acceptanceIds must be an array"]
             if (common.blank(r?.statement)) v += ["SRS_REQUIREMENT_STATEMENT_MISSING: requirement " + rid + " has no statement"]
             if (common.list(r?.acceptanceIds).is_empty()) v += ["SRS_REQUIREMENT_WITHOUT_ACCEPTANCE: requirement " + rid + " has no acceptance criterion"]
             for (var aid in common.list(r?.acceptanceIds)) {
@@ -50,6 +72,7 @@ export tool SrsEvaluator {
 
         for (var ac in common.list(srs?.acceptanceCriteria)) {
             var acid = common.str(ac?.id)
+            if (!is_array(ac?.requirementIds)) v += ["SRS_ACCEPTANCE_REQUIREMENT_IDS_INVALID: acceptance criterion " + acid + " requirementIds must be an array"]
             if (common.blank(ac?.given) || common.blank(ac?.when) || common.blank(ac?.then)) {
                 v += ["SRS_ACCEPTANCE_CRITERION_TEXT_MISSING: acceptance criterion " + acid + " has an empty given/when/then"]
             }
@@ -62,6 +85,7 @@ export tool SrsEvaluator {
 
         for (var iface in common.list(srs?.interfaces)) {
             var ifid = common.str(iface?.id)
+            if (!is_array(iface?.requirementIds)) v += ["SRS_INTERFACE_REQUIREMENT_IDS_INVALID: interface " + ifid + " requirementIds must be an array"]
             if (common.blank(iface?.name) || common.blank(iface?.description)) {
                 v += ["SRS_INTERFACE_TEXT_MISSING: interface " + ifid + " has an empty name or description"]
             }
@@ -74,6 +98,7 @@ export tool SrsEvaluator {
 
         for (var dr in common.list(srs?.dataRules)) {
             var drid = common.str(dr?.id)
+            if (!is_array(dr?.requirementIds)) v += ["SRS_DATA_RULE_REQUIREMENT_IDS_INVALID: data rule " + drid + " requirementIds must be an array"]
             if (common.blank(dr?.rule)) v += ["SRS_DATA_RULE_TEXT_MISSING: data rule " + drid + " has no rule text"]
             for (var drr in common.list(dr?.requirementIds)) {
                 if (!req_ids.contains(drr)) {

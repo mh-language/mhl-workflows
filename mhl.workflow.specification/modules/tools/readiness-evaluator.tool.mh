@@ -6,7 +6,13 @@ export tool ReadinessEvaluator {
         if (verdict == null) {
             return common.result(["READINESS_PROPOSAL_MISSING: the readiness verdict proposal is missing or not valid JSON"])
         }
+        if (!is_object(verdict)) {
+            return common.result(["READINESS_PROPOSAL_INVALID: the readiness proposal must be a JSON object"])
+        }
         var v = []
+        v += common.array_type_violation(verdict?.conflicts, "conflicts", "READINESS_CONFLICTS_INVALID")
+        v += common.array_type_violation(verdict?.residuals, "residuals", "READINESS_RESIDUALS_INVALID")
+        v += common.array_type_violation(verdict?.slices, "slices", "READINESS_SLICES_INVALID")
         var word = common.str(verdict?.verdict)
         var allowed = ["READY", "FAIL:product", "FAIL:analysis", "FAIL:design"]
         if (!allowed.contains(word)) {
@@ -23,11 +29,18 @@ export tool ReadinessEvaluator {
         }
 
         var slice_ids = common.ids_of(slices)
+        v += common.missing_id_violations(slices, "READINESS_SLICE_ID_MISSING", "readiness slice")
         v = common.dup_violations(v, slice_ids, "READINESS_SLICE_ID_DUPLICATE", "readiness slice")
         var known_req = common.list(known_requirement_ids)
         var known_adr = common.list(known_adr_ids)
         for (var s in slices) {
             var sid = common.str(s?.id)
+            if (common.blank(s?.goal) || common.blank(s?.observableOutcome) || common.blank(s?.acceptanceCriterion) || common.blank(s?.suggestedTarget) || common.blank(s?.suggestedVerificationStrategy)) {
+                v += ["READINESS_SLICE_TEXT_MISSING: slice " + sid + " is missing goal, outcome, acceptance criterion, target or verification strategy"]
+            }
+            if (!is_array(s?.requirementIds)) v += ["READINESS_REQUIREMENT_IDS_INVALID: slice " + sid + " requirementIds must be an array"]
+            if (!is_array(s?.adrIds)) v += ["READINESS_ADR_IDS_INVALID: slice " + sid + " adrIds must be an array"]
+            if (!is_array(s?.dependsOn)) v += ["READINESS_DEPENDS_ON_INVALID: slice " + sid + " dependsOn must be an array"]
             for (var rid in common.list(s?.requirementIds)) {
                 if (!known_req.contains(rid)) {
                     v += ["READINESS_REQUIREMENT_REFERENCE_DANGLING: slice ${sid} references unknown requirement ${rid}"]

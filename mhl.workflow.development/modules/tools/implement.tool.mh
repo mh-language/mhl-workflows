@@ -1,39 +1,28 @@
+use {RunConfig as config} from "run-config.tool.mh"
+
 export tool ImplementTool {
     get_feature_context(feature: object) : string -> {
         
-        var context = {
-            RequirementItems: feature?.implementationContext?.requirements ?? [],
-            DecisionItems: feature?.implementationContext?.decisions ?? [],
-            ConstraintItems: feature?.implementationContext?.constraints ?? [],
-            FileItems: feature?.implementationContext?.files ?? [],
-            AcceptanceItems: feature?.implementationContext?.acceptance ?? []
-        }
-
         return """
-        requirements: ${context.RequirementItems}
-        decisions: ${context.DecisionItems}
-        constraints: ${context.ConstraintItems}
-        files: ${context.FileItems}
-        acceptance: ${context.AcceptanceItems}
+        requirements: ${feature?.implementationContext?.requirements ?? []}
+        decisions: ${feature?.implementationContext?.decisions ?? []}
+        constraints: ${feature?.implementationContext?.constraints ?? []}
+        files: ${feature?.implementationContext?.files ?? []}
+        acceptance: ${feature?.implementationContext?.acceptance ?? []}
         """
     }
 
     get_design_context() : string -> {
-        var design_doc_path = self.get_candidates_paths(config.docs_folder())
+        const design_doc_path = config.get_document_candidates("20-software-design-document.md")
             .find((path) -> fs.exists(path))
 
-        var design_context = fs.read(design_doc_path)
+        if (design_doc_path == null) {
+            return "(design document not found)"
+        }
 
-        return design_context.replace("\r\n", "\\n").replace("\n", "\\n")
+        const design_context = fs.read(design_doc_path)
+
+        return design_context
     }
 
-    get_candidates_paths(docsFolder: string) : string[] -> {
-
-        var raw = [
-            "${docsFolder}/20-software-design-document.md",
-            "${docsFolder}/active/20-software-design-document.md",
-            "specs/active/20-software-design-document.md"
-        ]
-        return raw.unique()
-    }
 }

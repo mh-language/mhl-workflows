@@ -33,16 +33,16 @@ so a stale parent is caught mechanically.
 run; a third is a terminal `needs_human_decision`). A `READY` verdict freezes the
 readiness slices and moves to `approve`.
 
-`approve` validates a human decision (`approved` / `revise`) bound to the exact
-`bundleDigest` previewed. `revise` routes back to `review`. `approved` runs a
-pre-publish development-readiness gate and then the safe publisher.
+`approve` validates a human-written decision (`approved` / `revise`) bound to the
+exact `bundleDigest` previewed. `revise` routes back to `review`. `approved` runs
+a pre-publish development-readiness gate and then the safe publisher.
 
 ## Terminal states
 
 | Status | Meaning |
 | --- | --- |
 | `completed` | The bundle was published to `specs/active/` and read back intact. |
-| `awaiting_approval` | `review` reached `READY`; the run pauses for the approval phase (resumed on the next invocation). |
+| `awaiting_approval` | `review` reached `READY`; the run pauses until a human writes `approval.proposal.json` and invokes it again. |
 | `needs_human_decision` | A phase exhausted its retries, or the recascade limit was hit. |
 | `publish_blocked` | Approved, but the readiness gate failed or the destination held unrecognized files. |
 
@@ -72,9 +72,15 @@ mhl lint .
 mhl run main.mh
 ```
 
-The `READY` verdict parks the run at `awaiting_approval`. Run it again to perform
-the approval phase, or `mhl run main.mh --resume` to continue from the last
-checkpoint. A `completed` or blocked run starts over on the next `mhl run`.
+The `READY` verdict parks the run at `awaiting_approval`. Review the accepted
+documents, then create `.mhl/specification/approval.proposal.json` manually:
+
+```json
+{"decision":"approved","bundleDigest":"<current bundle digest>","rationale":"<human rationale>","approvedBy":"<person>","decidedAt":"<timestamp>"}
+```
+
+Run it again, or use `mhl run main.mh --resume`, to validate the decision and
+publish. A `completed` or blocked run starts over on the next `mhl run`.
 
 ## Outputs
 
@@ -150,8 +156,8 @@ mhl.workflow.specification/
   are explicit per-phase `while` loops instead of the harness retry budget.
 - Content digests shell out to `sha256sum`/`shasum` (`json.stringify` already
   emits sorted keys, so the digest stays content-addressed).
-- The approval pause is a real stop-and-resume rather than a cross-session
-  `awaiting_approval` handoff, but the status value and resume routing match.
+- The approval pause is a file-based human handoff; Codex never creates or
+  approves the approval proposal.
 - The publisher's postcondition re-reads and byte-compares the written files; it
   does not reproduce `Harness.Engine.DocsReader`'s concatenation check.
 - Because MHL raises on a missing object field, every read of an LLM-produced

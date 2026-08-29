@@ -1,36 +1,12 @@
 export tool CodexSchemas {
-    get_feature_list_schema() : object -> {
-        var schemaPath = self.get_plan_schema_path()
-        var schema = json.parse(fs.read(schemaPath))
-        return schema
-    }
-
-    get_setup_schema() : object -> {
-        var schemaPath = self.get_setup_schema_path()
-        var schema = json.parse(fs.read(schemaPath))
-        return schema
-    }
-
-    get_plan_schema_path() -> {
-        var schemaPath = ".mhl/plan_schema.json"
-
-        if (fs.exists(schemaPath)) {
-            return schemaPath
-        }
-
-        fs.write(schemaPath, "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"$id\":\"feature_list.schema.json\",\"title\":\"FeatureList\",\"type\":\"object\",\"additionalProperties\":false,\"required\":[\"features\"],\"properties\":{\"features\":{\"type\":\"array\",\"items\":{\"$ref\":\"#/$defs/feature\"}}},\"$defs\":{\"feature\":{\"type\":\"object\",\"additionalProperties\":false,\"required\":[\"dependsOn\",\"description\",\"id\",\"implementationContext\",\"priority\",\"references\",\"status\",\"title\"],\"properties\":{\"dependsOn\":{\"type\":\"array\",\"items\":{\"type\":\"integer\"},\"description\":\"Ids of features that must complete before this one.\"},\"description\":{\"type\":\"string\"},\"id\":{\"type\":\"integer\"},\"implementationContext\":{\"$ref\":\"#/$defs/implementationContext\"},\"priority\":{\"type\":\"integer\"},\"references\":{\"type\":\"array\",\"items\":{\"type\":\"string\"},\"description\":\"Flat list of requirement/ADR/AC/interface/design/IC ids cited by this feature.\"},\"status\":{\"type\":\"string\",\"enum\":[\"pending\",\"in_progress\",\"completed\",\"blocked\"]},\"title\":{\"type\":\"string\"}}},\"implementationContext\":{\"type\":\"object\",\"additionalProperties\":false,\"required\":[\"acceptance\",\"constraints\",\"decisions\",\"files\",\"requirements\"],\"properties\":{\"acceptance\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"constraints\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"decisions\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"files\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"requirements\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}}}}}}")
-        
-        return schemaPath        
-    }
-
     get_setup_schema_path() -> {
-        var schemaPath = ".mhl/setup_schema.json"
+        const schema_path = ".mhl/setup_schema.json"
 
-        if (fs.exists(schemaPath)) {
-            return schemaPath
+        if (fs.exists(schema_path)) {
+            return schema_path
         }
 
-        fs.write(schemaPath, json.stringify({
+        fs.write(schema_path, json.stringify({
             "type": "object",
             "properties": {
                 "TARGET_DIR": {"type": "string"},
@@ -40,7 +16,7 @@ export tool CodexSchemas {
             "additionalProperties": false
         }))
         
-        return schemaPath        
+        return schema_path
     }
 
 }

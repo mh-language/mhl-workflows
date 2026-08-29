@@ -7,16 +7,24 @@ export tool SddEvaluator {
         if (sdd == null) {
             return common.result(["SDD_PROPOSAL_MISSING: the SDD proposal is missing or not valid JSON"])
         }
+        if (!is_object(sdd)) {
+            return common.result(["SDD_PROPOSAL_INVALID: the SDD proposal must be a JSON object"])
+        }
         var v = []
+        v += common.array_type_violation(sdd?.adrs, "adrs", "SDD_ADRS_INVALID")
+        v += common.array_type_violation(sdd?.controls, "controls", "SDD_CONTROLS_INVALID")
         if (common.str(sdd?.schema) != self.schema()) {
             v += ["SDD_SCHEMA_UNKNOWN: expected schema " + self.schema() + ", got " + common.str(sdd?.schema)]
         }
 
         if (current_srs_digest == "" || common.str(sdd?.srsDigest) != current_srs_digest) {
-            v += ["SDD_SRS_DIGEST_STALE: sdd.srsDigest ${common.str(sdd?.srsDigest)} does not match the current accepted SRS digest ${current_srs_digest}"]
+            v += ["SDD_SRS_DIGEST_STALE: sdd.srsDigest " + common.str(sdd?.srsDigest) + " does not match the current accepted SRS digest " + current_srs_digest]
         }
 
         v = common.dup_violations(v, common.ids_of(common.list(sdd?.adrs)), "SDD_ADR_ID_DUPLICATE", "ADR")
+        v += common.missing_id_violations(sdd?.adrs, "SDD_ADR_ID_MISSING", "ADR")
+        v += common.missing_id_violations(sdd?.controls, "SDD_CONTROL_ID_MISSING", "control")
+        v = common.dup_violations(v, common.ids_of(common.list(sdd?.controls)), "SDD_CONTROL_ID_DUPLICATE", "control")
         var known = common.list(requirement_ids)
         var allocated = []
         for (var a in common.list(sdd?.adrs)) {
@@ -29,6 +37,10 @@ export tool SddEvaluator {
         }
         for (var a in common.list(sdd?.adrs)) {
             var aid = common.str(a?.id)
+            if (common.blank(a?.title) || common.blank(a?.decision) || common.blank(a?.rationale)) {
+                v += ["SDD_ADR_TEXT_MISSING: ADR " + aid + " has an empty title, decision or rationale"]
+            }
+            if (!is_array(a?.requirementIds)) v += ["SDD_ADR_REQUIREMENT_IDS_INVALID: ADR " + aid + " requirementIds must be an array"]
             for (var rid in common.list(a?.requirementIds)) {
                 if (!known.contains(rid)) {
                     v += ["SDD_ADR_REQUIREMENT_DANGLING: ADR ${aid} references unknown requirement ${rid}"]
@@ -37,6 +49,10 @@ export tool SddEvaluator {
         }
         for (var c in common.list(sdd?.controls)) {
             var cid = common.str(c?.id)
+            if (common.blank(c?.name) || common.blank(c?.description)) {
+                v += ["SDD_CONTROL_TEXT_MISSING: control " + cid + " has an empty name or description"]
+            }
+            if (!is_array(c?.requirementIds)) v += ["SDD_CONTROL_REQUIREMENT_IDS_INVALID: control " + cid + " requirementIds must be an array"]
             for (var rid in common.list(c?.requirementIds)) {
                 if (!known.contains(rid)) {
                     v += ["SDD_CONTROL_REQUIREMENT_DANGLING: control ${cid} references unknown requirement ${rid}"]
@@ -45,10 +61,11 @@ export tool SddEvaluator {
         }
 
         if (current_source_digest != "" && current_source_digest != "none") {
+            v += common.array_type_violation(sdd?.sourceFiles, "sourceFiles", "SDD_SOURCE_FILES_INVALID")
             if (common.blank(sdd?.sourceDigest)) {
                 v += ["SDD_SOURCE_DIGEST_MISSING: sourceDigest is required when an accepted source bundle exists"]
             } else if (common.str(sdd?.sourceDigest) != current_source_digest) {
-                v += ["SDD_SOURCE_DIGEST_STALE: sdd.sourceDigest ${common.str(sdd?.sourceDigest)} does not match the current accepted source digest ${current_source_digest}"]
+                v += ["SDD_SOURCE_DIGEST_STALE: sdd.sourceDigest " + common.str(sdd?.sourceDigest) + " does not match the current accepted source digest " + current_source_digest]
             }
             if (common.list(sdd?.sourceFiles).is_empty()) {
                 v += ["SDD_SOURCE_FILES_MISSING: sourceFiles is required when an accepted source bundle exists"]

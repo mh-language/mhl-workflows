@@ -43,16 +43,6 @@ prompt ReviewPrompt(
     proposal_path: string,
     retry_block: string) from "modules/prompts/review.prompt.md"
 
-prompt ApprovePrompt(
-    preview: string,
-    prd_path: string,
-    srs_path: string,
-    sdd_path: string,
-    readiness_path: string,
-    bundle_digest: string,
-    proposal_path: string,
-    retry_block: string) from "modules/prompts/approve.prompt.md"
-
 // Long-running Specification flow — the MHL port of dotnet/Flows.Specification
 // (blueprint 0004 §2 "State machine"):
 //
@@ -106,7 +96,7 @@ loop pipeline SpecificationPipeline {
 
         while (attempts < config.max_attempts() && accepted == false) {
             attempts = attempts + 1
-            log.info("[spec] discover attempt ${attempts}/${config.max_attempts()}")
+            log.info("[spec] discover attempt " + attempts + "/" + config.max_attempts())
 
             adapter.execute(query: DiscoverPrompt(
                 sources_block: sources.block(),
@@ -116,7 +106,7 @@ loop pipeline SpecificationPipeline {
 
             var idea = store.read_proposal("idea")
             var has = sources.has_sources()
-            var source = if (has) "specs/sources (${sources.files_csv()})" else "driver"
+            var source = if (has) "specs/sources (" + sources.files_csv() + ")" else "driver"
             var source_digest = if (has) sources.digest() else "none"
 
             var res = evaluator.evaluate_idea(idea, source, source_digest)
@@ -132,7 +122,7 @@ loop pipeline SpecificationPipeline {
         }
 
         if (accepted == false) {
-            store.terminate("needs_human_decision", "idea did not pass IdeaEvaluator after ${config.max_attempts()} attempts")
+            store.terminate("needs_human_decision", "idea did not pass IdeaEvaluator after " + config.max_attempts() + " attempts")
             break "discover exhausted retries"
         }
         // falls through to Product
@@ -146,7 +136,7 @@ loop pipeline SpecificationPipeline {
 
         while (attempts < config.max_attempts() && accepted == false) {
             attempts = attempts + 1
-            log.info("[spec] product attempt ${attempts}/${config.max_attempts()}")
+            log.info("[spec] product attempt " + attempts + "/" + config.max_attempts())
 
             var idea_digest = store.accepted_digest("idea")
             adapter.execute(query: ProductPrompt(
@@ -170,7 +160,7 @@ loop pipeline SpecificationPipeline {
         }
 
         if (accepted == false) {
-            store.terminate("needs_human_decision", "PRD did not pass PrdEvaluator after ${config.max_attempts()} attempts")
+            store.terminate("needs_human_decision", "PRD did not pass PrdEvaluator after " + config.max_attempts() + " attempts")
             break "product exhausted retries"
         }
         // falls through to Analysis
@@ -184,7 +174,7 @@ loop pipeline SpecificationPipeline {
 
         while (attempts < config.max_attempts() && accepted == false) {
             attempts = attempts + 1
-            log.info("[spec] analysis attempt ${attempts}/${config.max_attempts()}")
+            log.info("[spec] analysis attempt " + attempts + "/" + config.max_attempts())
 
             var prd_digest = store.accepted_digest("prd")
             adapter.execute(query: AnalysisPrompt(
@@ -212,7 +202,7 @@ loop pipeline SpecificationPipeline {
         }
 
         if (accepted == false) {
-            store.terminate("needs_human_decision", "SRS did not pass SrsEvaluator after ${config.max_attempts()} attempts")
+            store.terminate("needs_human_decision", "SRS did not pass SrsEvaluator after " + config.max_attempts() + " attempts")
             break "analysis exhausted retries"
         }
         // falls through to Design
@@ -226,7 +216,7 @@ loop pipeline SpecificationPipeline {
 
         while (attempts < config.max_attempts() && accepted == false) {
             attempts = attempts + 1
-            log.info("[spec] design attempt ${attempts}/${config.max_attempts()}")
+            log.info("[spec] design attempt " + attempts + "/" + config.max_attempts())
 
             var srs_digest = store.accepted_digest("srs")
             var src_digest = sources.digest()
@@ -259,7 +249,7 @@ loop pipeline SpecificationPipeline {
         }
 
         if (accepted == false) {
-            store.terminate("needs_human_decision", "SDD did not pass SddEvaluator after ${config.max_attempts()} attempts")
+            store.terminate("needs_human_decision", "SDD did not pass SddEvaluator after " + config.max_attempts() + " attempts")
             break "design exhausted retries"
         }
         // falls through to Review
@@ -273,7 +263,7 @@ loop pipeline SpecificationPipeline {
 
         while (attempts < config.max_attempts() && settled == false) {
             attempts = attempts + 1
-            log.info("[spec] review attempt ${attempts}/${config.max_attempts()}")
+            log.info("[spec] review attempt " + attempts + "/" + config.max_attempts())
 
             adapter.execute(query: ReviewPrompt(
                 srs_path: store.accepted_path("srs"),
@@ -299,8 +289,8 @@ loop pipeline SpecificationPipeline {
                 if (word == "READY") {
                     store.accept("readiness", verdict)
                     store.await_approval()
-                    log.info("[spec] review READY; readiness accepted; proceeding to approval.")
-                    // falls through to Approve
+                    log.info("[spec] review READY; readiness accepted; waiting for human approval file.")
+                    break "awaiting human approval"
                 } else {
                     var target = word.replace("FAIL:", "")
                     if (store.recascade_count() >= config.max_recascades()) {
@@ -318,101 +308,62 @@ loop pipeline SpecificationPipeline {
         }
 
         if (settled == false) {
-            store.terminate("needs_human_decision", "readiness verdict did not pass ReadinessEvaluator after ${config.max_attempts()} attempts")
+            store.terminate("needs_human_decision", "readiness verdict did not pass ReadinessEvaluator after " + config.max_attempts() + " attempts")
         }
         if (store.is_terminal()) { break "review terminal" }
         // falls through to Approve
     }
 
-    // approve -> ApprovalEvaluator + pre-publish gate + safe publish
+    // approve -> human-written ApprovalEvaluator proposal + pre-publish gate + safe publish
     step Approve {
-        var attempts = 0
-        var settled = false
-        var retry_block = ""
+        var bundle_digest = store.bundle_digest()
+        var decision = store.read_proposal("approval")
 
-        while (attempts < config.max_attempts() && settled == false) {
-            attempts = attempts + 1
-            log.info("[spec] approve attempt ${attempts}/${config.max_attempts()}")
-
-            var bundle_digest = store.bundle_digest()
-            var prd = store.read_accepted("prd")
-            var srs = store.read_accepted("srs")
-            var sdd = store.read_accepted("sdd")
-            var readiness = store.read_accepted("readiness")
-
-            var preview = "## Preview — bundle to be published to specs/active/\n"
-            if (prd != null) {
-                var goal_count = evaluator.list(prd?.goals).size()
-                preview = preview + "- PRD vision: " + evaluator.str(prd?.vision) + " — ${goal_count} goal(s)\n"
-            }
-            if (srs != null) {
-                var fr_count = evaluator.list(srs?.functionalRequirements).size()
-                var qr_count = evaluator.list(srs?.qualityRequirements).size()
-                preview = preview + "- SRS: ${fr_count} functional + ${qr_count} quality requirement(s)\n"
-            }
-            if (sdd != null) {
-                var adr_count = evaluator.list(sdd?.adrs).size()
-                var ctl_count = evaluator.list(sdd?.controls).size()
-                preview = preview + "- SDD: ${adr_count} ADR(s), ${ctl_count} control(s)\n"
-            }
-            if (readiness != null) {
-                var slice_count = evaluator.list(readiness?.slices).size()
-                preview = preview + "- Readiness: verdict " + evaluator.str(readiness?.verdict) + ", ${slice_count} slice(s)\n"
-            }
-
-            adapter.execute(query: ApprovePrompt(
-                preview: preview,
-                prd_path: store.accepted_path("prd"),
-                srs_path: store.accepted_path("srs"),
-                sdd_path: store.accepted_path("sdd"),
-                readiness_path: store.accepted_path("readiness"),
-                bundle_digest: bundle_digest,
-                proposal_path: store.proposal_path("approval"),
-                retry_block: retry_block))
-
-            var decision = store.read_proposal("approval")
-            var res = evaluator.evaluate_approval(decision, bundle_digest)
-
-            if (res.passed == false) {
-                retry_block = evaluator.retry_block(res.violations)
-                for (var vio in res.violations) { log.warn("[spec] approve: ${vio}") }
-            } else {
-                settled = true
-
-                if (evaluator.str(decision?.decision) == "revise") {
-                    store.set_phase("review")
-                    log.info("[spec] approval revise; routing back to review.")
-                    goto Review
-                }
-
-                if (prd == null || srs == null || sdd == null || readiness == null) {
-                    store.terminate("publish_blocked", "one or more accepted documents (prd/srs/sdd/readiness) are missing; cannot publish")
-                } else {
-                    var rendered = publisher.render_all(prd, srs, sdd, readiness)
-                    var gate = evaluator.evaluate_development_readiness(
-                        prd, srs, sdd, readiness,
-                        evaluator.str(decision?.bundleDigest), store.bundle_digest(),
-                        rendered, config.docs_max_chars())
-
-                    if (gate.passed == false) {
-                        store.terminate("publish_blocked", evaluator.join_violations(gate.violations))
-                        for (var vio in gate.violations) { log.error("[spec] dev-readiness: ${vio}") }
-                    } else {
-                        var pub = publisher.publish(prd, srs, sdd, readiness)
-                        if (pub.success == false) {
-                            store.terminate("publish_blocked", pub.error)
-                            log.error("[spec] publish blocked: ${pub.error}")
-                        } else {
-                            store.complete()
-                            log.info("[spec] bundle published to ${config.destination_folder()}; run completed.")
-                        }
-                    }
-                }
-            }
+        if (decision == null) {
+            log.info("[spec] awaiting human approval; write " + store.proposal_path("approval") + " and run again.")
+            break "approval file missing"
         }
 
-        if (settled == false) {
-            store.terminate("needs_human_decision", "approval decision did not pass ApprovalEvaluator after ${config.max_attempts()} attempts")
+        var res = evaluator.evaluate_approval(decision, bundle_digest)
+        if (res.passed == false) {
+            for (var vio in res.violations) { log.error("[spec] approval: ${vio}") }
+            log.error("[spec] approval remains pending; correct the approval file and run again.")
+            break "approval file invalid"
+        }
+
+        var prd = store.read_accepted("prd")
+        var srs = store.read_accepted("srs")
+        var sdd = store.read_accepted("sdd")
+        var readiness = store.read_accepted("readiness")
+
+        if (evaluator.str(decision?.decision) == "revise") {
+            store.set_phase("review")
+            log.info("[spec] approval revise; routing back to review.")
+            goto Review
+        }
+
+        if (prd == null || srs == null || sdd == null || readiness == null) {
+            store.terminate("publish_blocked", "one or more accepted documents (prd/srs/sdd/readiness) are missing; cannot publish")
+        } else {
+            var rendered = publisher.render_all(prd, srs, sdd, readiness)
+            var gate = evaluator.evaluate_development_readiness(
+                prd, srs, sdd, readiness,
+                evaluator.str(decision?.bundleDigest), store.bundle_digest(),
+                rendered, config.docs_max_chars())
+
+            if (gate.passed == false) {
+                store.terminate("publish_blocked", evaluator.join_violations(gate.violations))
+                for (var vio in gate.violations) { log.error("[spec] dev-readiness: ${vio}") }
+            } else {
+                var pub = publisher.publish(prd, srs, sdd, readiness)
+                if (pub.success == false) {
+                    store.terminate("publish_blocked", pub.error)
+                    log.error("[spec] publish blocked: ${pub.error}")
+                } else {
+                    store.complete()
+                    log.info("[spec] bundle published to " + config.destination_folder() + "; run completed.")
+                }
+            }
         }
         break "specification run finished"
     }

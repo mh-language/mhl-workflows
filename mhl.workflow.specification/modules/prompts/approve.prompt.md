@@ -1,5 +1,6 @@
-Review the bundle for this Specification run before publication (blueprint 0004 §5
-ApprovalEvaluator, §6 Publicação segura).
+Use this file as a manual approval template for the Specification run before
+publication (blueprint 0004 §5 ApprovalEvaluator, §6 Publicação segura). Codex
+must not create or approve this proposal.
 
 ${preview}
 
@@ -12,8 +13,7 @@ The four accepted documents are on disk:
 
 The current bundle digest is `${bundle_digest}`.
 
-Write a JSON OBJECT to the file `${proposal_path}` (a real file, written with your
-file-write tool — NOT escaped or embedded in your reply) with this shape:
+The human operator must write a JSON OBJECT to `${proposal_path}` with this shape:
 
 ```json
 {"decision":"approved","bundleDigest":"${bundle_digest}","rationale":"...","approvedBy":"...","decidedAt":"2026-01-01T00:00:00Z"}
@@ -36,5 +36,5 @@ If `decision` is `revise`: the run routes back to `review` for a fresh verdict
 
 ${retry_block}
 
-When the file is written, stop. The harness validates it and acts on the decision,
-or re-runs `approve` with the reported violations.
+After the human writes the file, run the workflow again. The harness validates it
+and acts on the decision.

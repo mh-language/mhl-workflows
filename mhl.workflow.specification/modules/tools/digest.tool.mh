@@ -25,9 +25,11 @@ export tool Digest {
     // Digest of an arbitrary string (staged through a temp file so content of any
     // size is handled without argv limits).
     text(content: string) : string -> {
-        var tmp = "${self.dir()}/.digest.tmp"
+        var tmp = self.dir() + "/.digest.tmp"
         fs.write(tmp, content)
-        return self.file(tmp)
+        var result = self.file(tmp)
+        if (fs.exists(tmp)) { fs.delete(tmp) }
+        return result
     }
 
     // Digest of a value under the same canonicalization the accepted store uses.

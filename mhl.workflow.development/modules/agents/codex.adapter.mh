@@ -2,9 +2,9 @@ use {Codex as codex, CodexWithoutSchema as codex_without_schema, CodexResultPars
 
 export tool CodexAdapter {
     // Executes a query using the Codex agent and returns the result.
-    execute(prompt, schema_path: string) -> {
+    execute(prompt: string, schema_path: string) -> {
         try {
-            var raw = codex.run(prompt: prompt, schema: schema_path)
+            const raw = codex.run(prompt: prompt, schema: schema_path)
             return parser.parse(raw)
         } catch (e) {
             log.error("[dev] failed to execute codex query: ${e}")
@@ -12,9 +12,9 @@ export tool CodexAdapter {
         }
     }
 
-    execute_without_schema(prompt) -> {
+    execute_without_schema(prompt: string) -> {
         try {
-            var raw = codex_without_schema.run(prompt: prompt)
+            const raw = codex_without_schema.run(prompt: prompt)
             return parser.parse(raw)
         } catch (e) {
             log.error("[dev] failed to execute codex query: ${e}")

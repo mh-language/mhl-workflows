@@ -8,8 +8,8 @@ export tool BearingsTool {
     }
 
     get_progress_file() : string -> {
-        var target_dir = config.get_target_dir()
-        var progress_path = fs.join(target_dir, "progress.txt")
+        const target_dir = config.get_target_dir()
+        const progress_path = fs.join(target_dir, "progress.txt")
         var progress = ""
 
         try {
@@ -17,8 +17,17 @@ export tool BearingsTool {
                 progress = "(progress.txt not found)"
                 log.warn("[dev] progress.txt not found at ${progress_path}.")
             } else {
-                progress = fs.read(progress_path)
-                log.info("[dev] progress.txt content:\n${progress}")
+                const all_progress = fs.read(progress_path)
+                const lines = all_progress.split("\n")
+                const start = if (lines.size() > 50) lines.size() - 50 else 0
+                var tail = []
+                var i = start
+                while (i < lines.size()) {
+                    tail += [lines[i]]
+                    i = i + 1
+                }
+                progress = tail.join("\n")
+                log.info("[dev] progress.txt tail:\n${progress}")
             }
         } catch (e) {
             progress = "(progress unavailable: ${e})"

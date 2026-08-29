@@ -57,7 +57,7 @@ file-write tool — do NOT escape it or put it inside the response) with this sh
 
 `revisedFeatures` is the COMPLETE replacement plan. Rules:
 
-- Retain every feature already marked `"done"` unchanged: same `id`, `title`, definition and `dependsOn`.
+- Retain every feature already marked `"completed"` unchanged: same `id`, `title`, definition and `dependsOn`.
 - Pending features may be reprioritized, rewritten, removed, split or added.
 - `id` values must be positive integers and unique.
 - Every `dependsOn` id must exist in the array; a feature may not depend on itself; the graph must stay acyclic.

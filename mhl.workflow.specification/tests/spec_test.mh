@@ -127,8 +127,8 @@ test readiness_evaluator {
             conflicts: [],
             residuals: [],
             slices: [
-                { id: "SL-1", requirementIds: ["RF-1"], adrIds: ["ADR-1"], dependsOn: [] },
-                { id: "SL-2", requirementIds: ["RF-2"], adrIds: [], dependsOn: ["SL-1"] }
+                { id: "SL-1", goal: "g1", observableOutcome: "o1", acceptanceCriterion: "a1", suggestedTarget: "src/one", suggestedVerificationStrategy: "tests", requirementIds: ["RF-1"], adrIds: ["ADR-1"], dependsOn: [] },
+                { id: "SL-2", goal: "g2", observableOutcome: "o2", acceptanceCriterion: "a2", suggestedTarget: "src/two", suggestedVerificationStrategy: "tests", requirementIds: ["RF-2"], adrIds: [], dependsOn: ["SL-1"] }
             ]
         }
         var res = evaluator.evaluate_readiness(verdict, ["RF-1", "RF-2"], ["ADR-1"])

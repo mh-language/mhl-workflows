@@ -7,7 +7,7 @@ description: "implement exactly the selected feature with the smallest complete,
 
 Implement only the selected `<feature>`. Follow the instructions below to ensure the implementation is complete, buildable, and testable:
 
-  1. Use the current `<implementation-context>` as the feature scope. Use the injected `<design-context>` only for architecture, interfaces, diagrams, folder layout, and cross-feature decisions. The full brief and bearings are not part of this session's contract, and the design context does not authorize unrelated work.
+  1. Use the current `<implementation-context>` as the feature scope. Use the injected `<design-context>` only for architecture, interfaces, diagrams, folder layout, and cross-feature decisions. Use `<bearings>` only to orient yourself in the target repository; it does not authorize unrelated work.
   2. Make the smallest complete change; avoid unrelated cleanup or work for later features.
   3. Add or update the tests needed to demonstrate the selected behavior.
   4. If an undeclared dependency blocks the feature, add only the minimum necessary to unblock it and keep the rest out of scope.
@@ -32,6 +32,10 @@ The `<implementation-context>` contains the feature description, references, and
   <design-context>
     ${design_context}
   </design-context>
+
+  <bearings>
+    ${bearings_context}
+  </bearings>
 </feature>   
 
 ## Implementation Notes

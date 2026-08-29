@@ -175,9 +175,27 @@ export tool SpecPublisher {
         return parts[parts.size() - 1]
     }
 
+    restore_previous(dest: string, files: string[], previous: object, previous_files: string[], manifest_path: string, had_manifest: boolean, previous_manifest: string) -> {
+        for (var name in files) {
+            var path = dest + "/" + name
+            if (previous_files.contains(name)) {
+                fs.write(path, previous[name])
+            } else if (fs.exists(path)) {
+                fs.delete(path)
+            }
+        }
+        if (had_manifest) {
+            fs.write(manifest_path, previous_manifest)
+        } else if (fs.exists(manifest_path)) {
+            fs.delete(manifest_path)
+        }
+    }
+
     // Renders, ownership-checks, writes the five files and records the manifest.
     // Returns { success, error, digests }. The destination is left completely
     // untouched if it holds any file this flow does not recognise as its own.
+    // If a write or postcondition fails, previously existing owned files and the
+    // manifest are restored before returning the error.
     publish(prd: object, srs: object, sdd: object, readiness: object) : object -> {
         var dest = config.destination_folder()
         var rendered = self.render_all(prd, srs, sdd, readiness)
@@ -210,41 +228,64 @@ export tool SpecPublisher {
             }
         }
 
-        // Ownership check passed: write exactly the five known filenames.
-        fs.write(dest + "/" + self.prd_file(), rendered[self.prd_file()])
-        fs.write(dest + "/" + self.srs_file(), rendered[self.srs_file()])
-        fs.write(dest + "/" + self.sdd_file(), rendered[self.sdd_file()])
-        fs.write(dest + "/" + self.readiness_file(), rendered[self.readiness_file()])
-        fs.write(dest + "/" + self.plan_file(), plan_json)
-
-        // Postcondition: re-read every file and confirm it matches what we staged.
-        var check = self.render_all(prd, srs, sdd, readiness)
-        var expected_content = {}
-        expected_content[self.prd_file()] = check[self.prd_file()]
-        expected_content[self.srs_file()] = check[self.srs_file()]
-        expected_content[self.sdd_file()] = check[self.sdd_file()]
-        expected_content[self.readiness_file()] = check[self.readiness_file()]
-        expected_content[self.plan_file()] = plan_json
-
-        var digests = {}
+        var previous_files = []
+        var previous = {}
         for (var name in files) {
             var path = dest + "/" + name
-            if (!fs.exists(path)) {
-                return { success: false, error: "postcondition failed: '${name}' is missing after write.", digests: null }
+            if (fs.exists(path)) {
+                previous_files += [name]
+                previous[name] = fs.read(path)
             }
-            if (fs.read(path) != expected_content[name]) {
-                return { success: false, error: "postcondition failed: '${name}' on disk does not match what was published.", digests: null }
+        }
+        var had_manifest = fs.exists(store.manifest_path())
+        var previous_manifest = if (had_manifest) fs.read(store.manifest_path()) else ""
+
+        try {
+            // Ownership check passed: write exactly the five known filenames.
+            fs.write(dest + "/" + self.prd_file(), rendered[self.prd_file()])
+            fs.write(dest + "/" + self.srs_file(), rendered[self.srs_file()])
+            fs.write(dest + "/" + self.sdd_file(), rendered[self.sdd_file()])
+            fs.write(dest + "/" + self.readiness_file(), rendered[self.readiness_file()])
+            fs.write(dest + "/" + self.plan_file(), plan_json)
+
+            // Postcondition: re-read every file and confirm it matches what we staged.
+            var check = self.render_all(prd, srs, sdd, readiness)
+            var expected_content = {}
+            expected_content[self.prd_file()] = check[self.prd_file()]
+            expected_content[self.srs_file()] = check[self.srs_file()]
+            expected_content[self.sdd_file()] = check[self.sdd_file()]
+            expected_content[self.readiness_file()] = check[self.readiness_file()]
+            expected_content[self.plan_file()] = plan_json
+
+            var digests = {}
+            var failure = ""
+            for (var name in files) {
+                if (failure == "") {
+                    var path = dest + "/" + name
+                    if (!fs.exists(path)) {
+                        failure = "postcondition failed: '" + name + "' is missing after write."
+                    } else if (fs.read(path) != expected_content[name]) {
+                        failure = "postcondition failed: '" + name + "' on disk does not match what was published."
+                    } else {
+                        digests[name] = digest.file(path)
+                    }
+                }
             }
-            digests[name] = digest.file(path)
-        }
+            if (failure != "") {
+                self.restore_previous(dest, files, previous, previous_files, store.manifest_path(), had_manifest, previous_manifest)
+                return { success: false, error: failure, digests: null }
+            }
 
-        var manifest = {
-            ownedFiles: files,
-            fileDigests: digests,
-            publishedAt: time.format(time.now(), "yyyy-MM-dd HH:mm:ss")
+            var manifest = {
+                ownedFiles: files,
+                fileDigests: digests,
+                publishedAt: time.format(time.now(), "yyyy-MM-dd HH:mm:ss")
+            }
+            fs.write(store.manifest_path(), json.stringify(manifest))
+            return { success: true, error: "", digests: digests }
+        } catch (e) {
+            self.restore_previous(dest, files, previous, previous_files, store.manifest_path(), had_manifest, previous_manifest)
+            return { success: false, error: "publish failed and previous state was restored: " + e, digests: null }
         }
-        fs.write(store.manifest_path(), json.stringify(manifest))
-
-        return { success: true, error: "", digests: digests }
     }
 }

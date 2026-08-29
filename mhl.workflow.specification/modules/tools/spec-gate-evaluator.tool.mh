@@ -12,7 +12,7 @@ export tool SpecGateEvaluator {
             v += ["APPROVAL_DECISION_INVALID: decision ${word} is not one of approved, revise"]
         }
         if (current_bundle_digest == "" || common.str(decision?.bundleDigest) != current_bundle_digest) {
-            v += ["APPROVAL_BUNDLE_DIGEST_STALE: decision.bundleDigest ${common.str(decision?.bundleDigest)} does not match the current bundle digest ${current_bundle_digest}"]
+            v += ["APPROVAL_BUNDLE_DIGEST_STALE: decision.bundleDigest " + common.str(decision?.bundleDigest) + " does not match the current bundle digest " + current_bundle_digest]
         }
         if (common.blank(decision?.rationale)) v += ["APPROVAL_RATIONALE_MISSING: rationale is required"]
         return common.result(v)

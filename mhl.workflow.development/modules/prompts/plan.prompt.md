@@ -49,9 +49,10 @@ Prefer several small features to a few broad ones. If a feature has no unambiguo
 
 ## 4. Write the plan
 
-**schema**: Then follow schema represents the structure of the feature list to be written to `${plan_path}`. Each feature is born with `status` set to `"pending"`.:  
+The following schema represents the structure of the feature list to be written to
+`${plan_path}`. Each feature is born with `status` set to `"pending"`:
 ```json
 "{\"$schema\":\"https://json-schema.org/draft/2020-12/schema\",\"$id\":\"feature_list.schema.json\",\"title\":\"FeatureList\",\"type\":\"object\",\"additionalProperties\":false,\"required\":[\"features\"],\"properties\":{\"features\":{\"type\":\"array\",\"items\":{\"$ref\":\"#/$defs/feature\"}}},\"$defs\":{\"feature\":{\"type\":\"object\",\"additionalProperties\":false,\"required\":[\"dependsOn\",\"description\",\"id\",\"implementationContext\",\"priority\",\"references\",\"status\",\"title\"],\"properties\":{\"dependsOn\":{\"type\":\"array\",\"items\":{\"type\":\"integer\"},\"description\":\"Ids of features that must complete before this one.\"},\"description\":{\"type\":\"string\"},\"id\":{\"type\":\"integer\"},\"implementationContext\":{\"$ref\":\"#/$defs/implementationContext\"},\"priority\":{\"type\":\"integer\"},\"references\":{\"type\":\"array\",\"items\":{\"type\":\"string\"},\"description\":\"Flat list of requirement/ADR/AC/interface/design/IC ids cited by this feature.\"},\"status\":{\"type\":\"string\",\"enum\":[\"pending\",\"in_progress\",\"completed\",\"blocked\"]},\"title\":{\"type\":\"string\"}}},\"implementationContext\":{\"type\":\"object\",\"additionalProperties\":false,\"required\":[\"acceptance\",\"constraints\",\"decisions\",\"files\",\"requirements\"],\"properties\":{\"acceptance\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"constraints\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"decisions\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"files\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}},\"requirements\":{\"type\":\"array\",\"items\":{\"type\":\"string\"}}}}}}"
 ```
 
-Write a JSON ARRAY to the file `${plan_path}` (a real file, written with your file-write tool — NOT escaped or embedded inside the envelope you send back).
+Write a JSON OBJECT to the file `${plan_path}` (a real file, written with your file-write tool — NOT escaped or embedded inside the envelope you send back). The object must have a top-level `features` array.

@@ -18,6 +18,10 @@ Deterministic verification FAILED for the feature below. Repair only this featur
     ${design_context}
   </design-context>
 
+  <bearings>
+    ${bearings_context}
+  </bearings>
+
   <verification-failure>
     ${verify_failure}
   </verification-failure>

@@ -1,38 +1,49 @@
 use {RunConfig as config} from "run-config.tool.mh"
 
+type VerificationResult = {
+    success: bool,
+    detail: string
+}
+
 export tool VerifyTool {
-    verify_feature(feature: object) : boolean -> {
-        var feature_id = feature.id
-        var target_dir = config.get_target_dir()
-        var script_path = fs.join(target_dir, "verify-feature.sh")
+    verify_feature(feature: object) : VerificationResult -> {
+        const feature_id = feature.id
+        const target_dir = config.get_target_dir()
+        const script_path = fs.join(target_dir, "verify-feature.sh")
 
         // Preferred path: the per-feature script the setup step is asked to create.
         // The feature id goes in as an argument, not as a path segment.
         if (fs.exists(script_path)) {
             try {
-                var result = cmd.exec(["bash", script_path, "${feature_id}"], timeout: 5m)
+                const result = cmd.exec(["bash", script_path, "${feature_id}"], timeout: 5m)
                 log.info("[dev] verify-feature.sh result for feature ${feature_id}: ${result}")
-                return true
+                return {
+                    success: result.exit_code == 0,
+                    detail: "exit_code=${result.exit_code}\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}"
+                }
             } catch (e) {
                 log.info("[dev] verify-feature.sh failed for feature ${feature_id}: ${e}")
-                return false
+                return {success: false, detail: "verification execution error: ${e}"}
             }
         }
 
         // Fallback: the configured aggregate verify command (run_config.json -> verify_cmd).
-        var verify_cmd = config.get_verify_cmd()
+        const verify_cmd = config.get_verify_cmd()
         if (verify_cmd == null || verify_cmd == "") {
             log.info("[dev] Feature ${feature_id}: no verify-feature.sh and no verify_cmd configured; cannot verify.")
-            return false
+            return {success: false, detail: "no verify-feature.sh and no verify_cmd configured"}
         }
 
         try {
-            var result = cmd.exec(["bash", "-lc", "cd ${target_dir} && ${verify_cmd}"], timeout: 10m)
+            const result = cmd.exec(["bash", "-lc", "cd -- \"${target_dir}\" && ${verify_cmd}"], timeout: 10m)
             log.info("[dev] verify_cmd result for feature ${feature_id}: ${result}")
-            return true
+            return {
+                success: result.exit_code == 0,
+                detail: "exit_code=${result.exit_code}\nstdout:\n${result.stdout}\nstderr:\n${result.stderr}"
+            }
         } catch (e) {
             log.info("[dev] verify_cmd failed for feature ${feature_id}: ${e}")
-            return false
+            return {success: false, detail: "verification execution error: ${e}"}
         }
     }
 }

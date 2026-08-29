@@ -94,7 +94,7 @@ The plan must be a JSON object with a `features` list. Each feature must have a 
 }
 ```
 
-Dependencies must reference existing IDs and form an acyclic graph. By default, the workflow imports at most the first ten features, ordered by priority and ID.
+Dependencies must reference existing IDs and form an acyclic graph. By default, the workflow imports at most the first ten features, ordered by priority and ID. It preserves the complete dependency closure; if the limit would cut a prerequisite, the plan is rejected instead of silently removing the dependency.
 
 ## Running the workflow
 
@@ -163,6 +163,7 @@ The default limits defined in `modules/tools/run-config.tool.mh` are:
 | --- | ---: | --- |
 | `steps_per_feature` | `6` | Maximum number of implementation/verification cycles per feature. |
 | `max_replans` | `2` | Maximum number of global plan revisions. |
+| `max_smoke_attempts` | `3` | Maximum number of setup repair attempts. |
 | `max_features` | `10` | Maximum number of imported or retained features. |
 | `docs_folder` | `specs/active` | Main directory for approved documents. |
 
@@ -185,7 +186,7 @@ development-workflow/
 │   │   ├── fix.prompt.md
 │   │   ├── replan.prompt.md
 │   │   └── retry-smoke.prompt.md
-│   └── tools/
+│   ├── tools/
 │       ├── feature.tool.mh       # plan import, selection, and revision
 │       ├── run-config.tool.mh    # persistent configuration
 │       ├── smoke.tool.mh         # project bootstrap
@@ -194,6 +195,8 @@ development-workflow/
 │       ├── bearings.tool.mh      # concise repository context
 │       ├── implement.tool.mh     # feature and design context
 │       └── session.tool.mh       # session memory and tracing
+│   ├── tests/
+│       └── feature_test.mh       # FeatureStore regression tests
 └── specs/
     ├── active/
     └── sources/

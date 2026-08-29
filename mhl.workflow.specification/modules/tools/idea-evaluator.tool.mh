@@ -8,10 +8,16 @@ export tool IdeaEvaluator {
         if (idea == null) {
             return common.result(["IDEA_PROPOSAL_MISSING: the idea proposal is missing or not valid JSON"])
         }
-        
-        var v = []
+        if (!is_object(idea)) {
+            return common.result(["IDEA_PROPOSAL_INVALID: the idea proposal must be a JSON object"])
+        }
 
-        if (common.str(idea?.schema) != self.schema()) v += ["IDEA_SCHEMA_UNKNOWN: expected schema ${ self.schema()}, got ${common.str(idea?.schema)}"]
+        var v = []
+        v += common.array_type_violation(idea?.users, "users", "IDEA_USERS_INVALID")
+        v += common.array_type_violation(idea?.desiredOutcomes, "desiredOutcomes", "IDEA_OUTCOMES_INVALID")
+        v += common.array_type_violation(idea?.openQuestions, "openQuestions", "IDEA_OPEN_QUESTIONS_INVALID")
+
+        if (common.str(idea?.schema) != self.schema()) v += ["IDEA_SCHEMA_UNKNOWN: expected schema " + self.schema() + ", got " + common.str(idea?.schema)]
         if (common.blank(idea?.title)) v += ["IDEA_TITLE_MISSING: title is required"]
         if (common.blank(idea?.problem)) v += ["IDEA_PROBLEM_MISSING: problem is required"]
         if (common.list(idea?.users).is_empty()) v += ["IDEA_USERS_MISSING: at least one user is required"]
