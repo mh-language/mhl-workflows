@@ -2,11 +2,11 @@ export tool ImplementTool {
     get_feature_context(feature: object) : string -> {
         
         var context = {
-            RequirementItems: feature.implementationContext.requirements,
-            DecisionItems: feature.implementationContext.decisions,
-            ConstraintItems: feature.implementationContext.constraints,
-            FileItems: feature.implementationContext.files,
-            AcceptanceItems: feature.implementationContext.acceptance
+            RequirementItems: feature?.implementationContext?.requirements ?? [],
+            DecisionItems: feature?.implementationContext?.decisions ?? [],
+            ConstraintItems: feature?.implementationContext?.constraints ?? [],
+            FileItems: feature?.implementationContext?.files ?? [],
+            AcceptanceItems: feature?.implementationContext?.acceptance ?? []
         }
 
         return """
@@ -20,9 +20,9 @@ export tool ImplementTool {
 
     get_design_context() : string -> {
         var design_doc_path = self.get_candidates_paths(config.docs_folder())
-            .filter((path) -> fs.exists(path))
+            .find((path) -> fs.exists(path))
 
-        var design_context = fs.read(design_doc_path[0])
+        var design_context = fs.read(design_doc_path)
 
         return design_context.replace("\r\n", "\\n").replace("\n", "\\n")
     }
@@ -34,12 +34,6 @@ export tool ImplementTool {
             "${docsFolder}/active/20-software-design-document.md",
             "specs/active/20-software-design-document.md"
         ]
-        var unique = []
-        for (var path in raw) {
-            if (!unique.contains(path)) {
-                unique = unique + [path]
-            }
-        }
-        return unique
+        return raw.unique()
     }
 }

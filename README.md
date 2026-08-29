@@ -10,8 +10,11 @@ The repository keeps pipeline definitions separate from the projects they operat
 
 | Workflow | Purpose | Documentation |
 | --- | --- | --- |
+| `specification-workflow` | Turns an idea or a folder of source material into an approved specification bundle (PRD, SRS, SDD, readiness handoff, development plan) through evaluator-gated phases and a human approval step. | [View documentation](mhl.workflow.specification/README.md) |
 | `development-workflow` | Converts specifications into a feature plan and coordinates setup, implementation, testing, fixes, replanning, and commits with Codex. | [View documentation](mhl.workflow.development/README.md) |
 | `research-workflow` | Retrieves Wikipedia articles through the `wikipedia-mcp` MCP server and produces a structured Markdown brief with Codex. | [View documentation](mhl.workflow.research/README.md) |
+
+The `specification-workflow` and `development-workflow` chain: the former publishes `specs/active/40-development-plan.json`, which the latter imports directly.
 
 Currently, `mhl.workflow.development/specs/` contains a complete example for a task-management Web API built with ASP.NET Core and Postgres. These documents are sample inputs and can be replaced with the specifications of the project to be developed.
 
@@ -113,6 +116,14 @@ Before the first run, read the [development workflow README](mhl.workflow.develo
 
 ```text
 .
+├── mhl.workflow.specification/
+│   ├── main.mh              # idea → PRD → SRS → SDD → readiness → approval → publish
+│   ├── modules/
+│   │   ├── agents/          # Codex CLI integration
+│   │   ├── prompts/         # one prompt per documental phase
+│   │   └── tools/           # store, digests, evaluators, renderer, publisher
+│   ├── specs/sources/       # human-curated input material
+│   └── tests/               # evaluator, renderer, and I/O checks
 ├── mhl.workflow.development/
 │   ├── main.mh              # main pipeline
 │   ├── modules/

@@ -1,0 +1,213 @@
+use { Digest as digest } from "digest.tool.mh"
+
+// Namespaced store for the Specification flow's own artifacts, under
+// .mhl/specification/ — the MHL counterpart of dotnet/Flows.Specification's
+// SpecificationStore (.harness/specification/active/). Deliberately separate
+// from the Development workflow's .mhl/feature_list.json so an approved bundle's
+// history survives past handoff and is never wiped by an unrelated run.
+//
+// Every documental phase follows the same two-file convention:
+//   <phase>.proposal.json  — the driver's not-yet-validated draft
+//   <phase>.accepted.json   — the version that passed its evaluator (canonical)
+//
+// MHL forbids assigning to a nested field, so run state is always rebuilt as a
+// whole object literal rather than mutated in place.
+memory RunMemory { type: "json" path: ".mhl/specification/run.json" }
+
+export tool SpecStore {
+    dir() : string -> ".mhl/specification"
+
+    proposal_path(phase: string) : string -> self.dir() + "/" + phase + ".proposal.json"
+    accepted_path(phase: string) : string -> self.dir() + "/" + phase + ".accepted.json"
+    manifest_path() : string -> self.dir() + "/publish-manifest.json"
+
+    // --- run state -----------------------------------------------------------
+
+    default_run() : object -> {
+        return {
+            step: 0,
+            status: "in_progress",
+            phase: "discover",
+            recascades: 0,
+            terminalReason: null
+        }
+    }
+
+    has_run() : boolean -> RunMemory.get("run", null) != null
+
+    field(obj: any, name: string, fallback: any) : any -> {
+        try {
+            if (obj != null && obj.keys().contains(name)) { return obj[name] }
+        } catch (e) {
+            return fallback
+        }
+        return fallback
+    }
+
+    load_run() : object -> {
+        var run = RunMemory.get("run", null)
+        if (run == null) { return self.default_run() }
+        return {
+            step: self.field(run, "step", 0),
+            status: self.field(run, "status", "in_progress"),
+            phase: self.field(run, "phase", "discover"),
+            recascades: self.field(run, "recascades", 0),
+            terminalReason: self.field(run, "terminalReason", null)
+        }
+    }
+
+    save_run(run: object) -> RunMemory.set("run", run)
+
+    begin() -> RunMemory.set("run", self.default_run())
+
+    // Advance to the next in-progress phase (bumps the step counter, blueprint
+    // 0004 §4 "step, status, phase, counters").
+    set_phase(phase: string) -> {
+        var run = self.load_run()
+        self.save_run({
+            step: run.step + 1,
+            status: "in_progress",
+            phase: phase,
+            recascades: run.recascades,
+            terminalReason: run.terminalReason
+        })
+    }
+
+    // Blueprint 0004 §2 lists "awaiting_approval" as a real status value — the
+    // run pauses here for the human approval gate.
+    await_approval() -> {
+        var run = self.load_run()
+        self.save_run({
+            step: run.step + 1,
+            status: "awaiting_approval",
+            phase: "approve",
+            recascades: run.recascades,
+            terminalReason: run.terminalReason
+        })
+    }
+
+    terminate(status: string, reason: string) -> {
+        var run = self.load_run()
+        self.save_run({
+            step: run.step,
+            status: status,
+            phase: run.phase,
+            recascades: run.recascades,
+            terminalReason: reason
+        })
+        log.warn("[spec] run terminal: ${status} — ${reason}")
+    }
+
+    complete() -> {
+        var run = self.load_run()
+        self.save_run({
+            step: run.step,
+            status: "completed",
+            phase: "stop",
+            recascades: run.recascades,
+            terminalReason: run.terminalReason
+        })
+    }
+
+    is_terminal() : boolean -> {
+        var s = self.load_run().status
+        return s == "completed" || s == "publish_blocked" || s == "needs_human_decision"
+    }
+
+    is_resumable() : boolean -> {
+        if (!self.has_run()) { return false }
+        var s = self.load_run().status
+        return s == "in_progress" || s == "awaiting_approval"
+    }
+
+    recascade_count() : number -> self.load_run().recascades
+
+    bump_recascade() -> {
+        var run = self.load_run()
+        self.save_run({
+            step: run.step,
+            status: run.status,
+            phase: run.phase,
+            recascades: run.recascades + 1,
+            terminalReason: run.terminalReason
+        })
+    }
+
+    // --- documents ---------------------------------------------------------
+
+    read_proposal(phase: string) : object -> {
+        var path = self.proposal_path(phase)
+        try {
+            if (!fs.exists(path)) { return null }
+            return json.parse(fs.read(path))
+        } catch (e) {
+            log.error("[spec] failed to read proposal ${path}: ${e}")
+            return null
+        }
+    }
+
+    read_accepted(phase: string) : object -> {
+        var path = self.accepted_path(phase)
+        try {
+            if (!fs.exists(path)) { return null }
+            return json.parse(fs.read(path))
+        } catch (e) {
+            log.error("[spec] failed to read accepted ${path}: ${e}")
+            return null
+        }
+    }
+
+    // Persist the evaluator-passed version and return its content digest — the
+    // value later phases compare against (ideaDigest, prdDigest, srsDigest,
+    // bundleDigest) to reject a stale parent.
+    accept(phase: string, value: any) : string -> {
+        var path = self.accepted_path(phase)
+        fs.write(path, json.stringify(value))
+        return digest.file(path)
+    }
+
+    accepted_digest(phase: string) : string -> {
+        var value = self.read_accepted(phase)
+        if (value == null) { return "" }
+        return digest.of(value)
+    }
+
+    // Digest of the whole accepted chain (idea -> prd -> srs -> sdd -> readiness),
+    // in that fixed order — what ApprovalDecision.bundleDigest must match. Any
+    // accepted phase changing after the approval preview changes this value.
+    bundle_digest() : string -> {
+        var parts = [
+            self.accepted_digest("idea"),
+            self.accepted_digest("prd"),
+            self.accepted_digest("srs"),
+            self.accepted_digest("sdd"),
+            self.accepted_digest("readiness")
+        ]
+        var joined = ""
+        for (var p in parts) {
+            joined = if (joined == "") p else joined + "|" + p
+        }
+        return digest.text(joined)
+    }
+
+    // Clear every proposal/accepted/run file for the active run — a fresh start.
+    reset() -> {
+        var files = [
+            "run.json", "sources.accepted.json", ".digest.tmp",
+            "idea.proposal.json", "idea.accepted.json",
+            "prd.proposal.json", "prd.accepted.json",
+            "srs.proposal.json", "srs.accepted.json",
+            "sdd.proposal.json", "sdd.accepted.json",
+            "review.proposal.json", "readiness.accepted.json",
+            "approval.proposal.json", "publish-manifest.json"
+        ]
+        for (var f in files) {
+            var path = self.dir() + "/" + f
+            try {
+                if (fs.exists(path)) { fs.delete(path) }
+            } catch (e) {
+                log.warn("[spec] reset: could not delete ${path}: ${e}")
+            }
+        }
+    }
+}

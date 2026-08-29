@@ -3,19 +3,21 @@ export memory RunConfigMemory {type: "json" path: ".mhl/run_config.json" }
 export tool RunConfig {
 
     setup(raw: any) : boolean -> {
-
-        try{
-            var target_dir = raw.TARGET_DIR
-            var verify_cmd = raw.VERIFY_CMD
-
-            self.set("target_dir", target_dir)
-            self.set("verify_cmd", verify_cmd)
-            
-            return true
-        } catch (e) {
-            log.error("[dev] failed to set up RunConfig: ${e}")
+        if (!is_object(raw)) {
+            log.error("[dev] failed to set up RunConfig: expected an object")
             return false
         }
+
+        var target_dir = raw?.TARGET_DIR
+        var verify_cmd = raw?.VERIFY_CMD
+        if (target_dir == null || verify_cmd == null) {
+            log.error("[dev] failed to set up RunConfig: TARGET_DIR and VERIFY_CMD are required")
+            return false
+        }
+
+        self.set("target_dir", target_dir)
+        self.set("verify_cmd", verify_cmd)
+        return true
     }
 
     get_target_dir() -> self.get("target_dir", null)
@@ -38,16 +40,7 @@ export tool RunConfig {
     }
 
     get(key: string, defaultValue: any) -> {
-        try {
-            var value = self.get_config()[key]
-            if (value == null) {
-                return defaultValue
-            }
-            return value
-        } catch (e) {
-            return defaultValue
-        }
-        return self.get_config()[key] 
+        return self.get_config()?.[key] ?? defaultValue
     }
 
     set(key: string, value: any) -> {

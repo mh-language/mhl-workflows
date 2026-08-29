@@ -12,15 +12,13 @@ export tool FeatureStore {
 
     // Check if there are any pending features
     has_pending_features() : boolean -> {
-        var features = self.get()
-        if (features == null) return false
-        return features.filter((f) -> f.status == "pending").size() > 0
+        var features = self.get() ?? []
+        return features.any((f) -> f.status == "pending")
     }
 
     // Mark a feature as done by id, persisting the updated list
     mark_done(id) : boolean -> {
-        var features = self.get()
-        if (features == null) return false
+        var features = self.get() ?? []
 
         var updated = false
         var result = []
@@ -29,7 +27,7 @@ export tool FeatureStore {
             if (f.id == id) {
                 updated = true
             }
-            result = result + [
+            result += [
             {
                 "id": f.id,
                 "description": f.description,
@@ -58,8 +56,8 @@ export tool FeatureStore {
     set_plan(plan) : boolean -> {
         if (plan == null) return false
 
-        var raw = plan.features
-        if (raw == null || raw.size() == 0) {
+        var raw = plan?.features ?? []
+        if (raw.is_empty()) {
             log.info("[dev] set_plan: parsed plan had no 'features' array.")
             return false
         }
@@ -75,17 +73,12 @@ export tool FeatureStore {
     }
 
     pick_next_feature() : object -> {
-        var features = self.get()
+        var features = self.get() ?? []
 
-        var passedIds = []
-        for (var f in features) {
-            if (f.status == "done") {
-                passedIds = passedIds + [f.id]
-            }
-        }
+        var passedIds = features.filter((f) -> f.status == "done").map((f) -> f.id)
 
         var ready = features
-            .filter((f) -> f.status == "pending" && f.dependsOn.filter((d) -> !passedIds.contains(d)).is_empty())
+            .filter((f) -> f.status == "pending" && (f.dependsOn ?? []).all((d) -> !passedIds.contains(d)))
             .sort_by((f) -> f.id)
             .sort_by((f) -> f.priority)
 
@@ -138,13 +131,7 @@ export tool FeatureStore {
             "${docsFolder}/active/40-development-plan.json",
             "specs/active/40-development-plan.json"
         ]
-        var unique = []
-        for (var path in raw) {
-            if (!unique.contains(path)) {
-                unique = unique + [path]
-            }
-        }
-        return unique
+        return raw.unique()
     }
 
     // Import features from a given path, capping the number of features to maxFeatures
@@ -153,7 +140,7 @@ export tool FeatureStore {
         try {
             var raw = fs.read(path)
             var plan = json.parse(raw)
-            var features = self.cap_features(plan.features, maxFeatures)
+            var features = self.cap_features(plan?.features ?? [], maxFeatures)
             if (features.size() == 0) {
                 log.info("[dev] published handoff '${path}' was invalid or empty.")
                 return false
@@ -173,13 +160,13 @@ export tool FeatureStore {
 
         var cappedIds = []
         for (var f in capped) {
-            cappedIds = cappedIds + [f.id]
+            cappedIds += [f.id]
         }
 
         var result = []
         for (var f in capped) {
-            var deps = f.dependsOn.filter((d) -> cappedIds.contains(d))
-            result = result + [
+            var deps = (f.dependsOn ?? []).filter((d) -> cappedIds.contains(d))
+            result += [
             {
                 "id": f.id, 
                 "description": f.description,
@@ -198,10 +185,7 @@ export tool FeatureStore {
 
     // Append a plan observation; returns its generated id (OBS-N).
     record_observation(kind: string, feature_id, summary: string, evidence: string) : string -> {
-        var existing = ObsMemory.get("observations", null)
-        if (existing == null) {
-            existing = []
-        }
+        var existing = ObsMemory.get("observations", null) ?? []
         var n = existing.size() + 1
         var obs_id = "OBS-${n}"
         var entry = {
@@ -211,21 +195,18 @@ export tool FeatureStore {
             "summary": summary,
             "evidence": evidence
         }
-        ObsMemory.set("observations", existing + [entry])
+        existing += [entry]
+        ObsMemory.set("observations", existing)
         return obs_id
     }
 
     // Human-readable list of recorded observations for the replan prompt.
     get_observations_text() : string -> {
         var existing = ObsMemory.get("observations", null)
-        if (existing == null || existing.size() == 0) {
+        if (existing?.is_empty() ?? true) {
             return "(no observations recorded)"
         }
-        var text = ""
-        for (var o in existing) {
-            text = text + "${o.id} [${o.kind}] feature=${o.feature_id}: ${o.summary}; evidence=${o.evidence}\n"
-        }
-        return text
+        return existing.map((o) -> "${o.id} [${o.kind}] feature=${o.feature_id}: ${o.summary}; evidence=${o.evidence}").join("\n") + "\n"
     }
 
     // Returns true when the dependsOn graph has a cycle (Kahn's algorithm:
@@ -233,7 +214,7 @@ export tool FeatureStore {
     has_cycle(features: object[]) : boolean -> {
         var remaining = []
         for (var f in features) {
-            remaining = remaining + [f]
+            remaining += [f]
         }
 
         var resolved = []
@@ -242,13 +223,13 @@ export tool FeatureStore {
             changed = false
             var next_remaining = []
             for (var r in remaining) {
-                var deps = if (r.dependsOn == null) [] else r.dependsOn
+                var deps = r.dependsOn ?? []
                 var unmet = deps.filter((d) -> !resolved.contains(d))
                 if (unmet.is_empty()) {
-                    resolved = resolved + [r.id]
+                    resolved += [r.id]
                     changed = true
                 } else {
-                    next_remaining = next_remaining + [r]
+                    next_remaining += [r]
                 }
             }
             remaining = next_remaining
@@ -264,8 +245,8 @@ export tool FeatureStore {
         if (revision == null) {
             return {"success": false, "error": "no revision object"}
         }
-        var proposed = revision.revisedFeatures
-        if (proposed == null || proposed.size() == 0) {
+        var proposed = revision?.revisedFeatures ?? []
+        if (proposed.is_empty()) {
             return {"success": false, "error": "revisedFeatures is missing or empty"}
         }
 
@@ -278,17 +259,15 @@ export tool FeatureStore {
             if (seen.contains(f.id)) {
                 return {"success": false, "error": "duplicate feature id ${f.id}"}
             }
-            seen = seen + [f.id]
+            seen += [f.id]
         }
 
         // 2. every already-completed feature must survive the revision
-        var current = self.get()
+        var current = self.get() ?? []
         var done_ids = []
-        if (current != null) {
-            for (var c in current) {
-                if (c.status == "done") {
-                    done_ids = done_ids + [c.id]
-                }
+        for (var c in current) {
+            if (c.status == "done") {
+                done_ids += [c.id]
             }
         }
         for (var d in done_ids) {
@@ -299,7 +278,7 @@ export tool FeatureStore {
 
         // 3. dependsOn must reference known ids, no self-deps, no cycles
         for (var f in proposed) {
-            var deps = if (f.dependsOn == null) [] else f.dependsOn
+            var deps = f.dependsOn ?? []
             for (var dep in deps) {
                 if (dep == f.id) {
                     return {"success": false, "error": "feature ${f.id} depends on itself"}
@@ -317,15 +296,15 @@ export tool FeatureStore {
         var normalized = []
         for (var f in proposed) {
             var status = if (done_ids.contains(f.id)) "done" else "pending"
-            normalized = normalized + [
+            normalized += [
             {
                 "id": f.id,
                 "description": f.description,
-                "references": if (f.references == null) [] else f.references,
+                "references": f.references ?? [],
                 "implementationContext": f.implementationContext,
                 "title": f.title,
                 "priority": f.priority,
-                "dependsOn": if (f.dependsOn == null) [] else f.dependsOn,
+                "dependsOn": f.dependsOn ?? [],
                 "status": status
             }]
         }
@@ -336,10 +315,7 @@ export tool FeatureStore {
             .sort_by((f) -> if (f.status == "done") 0 else 1)
         var capped = ordered[..config.max_features()]
 
-        var kept_ids = []
-        for (var f in capped) {
-            kept_ids = kept_ids + [f.id]
-        }
+        var kept_ids = capped.map((f) -> f.id)
         for (var d in done_ids) {
             if (!kept_ids.contains(d)) {
                 return {"success": false, "error": "too many features; completed feature ${d} would be cut"}
@@ -349,7 +325,7 @@ export tool FeatureStore {
         var final = []
         for (var f in capped) {
             var kept_deps = f.dependsOn.filter((d) -> kept_ids.contains(d))
-            final = final + [
+            final += [
             {
                 "id": f.id,
                 "description": f.description,
@@ -404,10 +380,7 @@ export tool FeatureStore {
     // Read all files in the source folder and concatenate their contents into a single string
     read_files_in_source_folder(path: string) : string -> {
         var files = fs.list(path)
-        var content = ""
-        for (var file in files) {
-            content = content + fs.read(file) + "\n"
-        }
-        return content
+        if (files.is_empty()) { return "" }
+        return files.map((file) -> fs.read(file)).join("\n") + "\n"
     }         
 }

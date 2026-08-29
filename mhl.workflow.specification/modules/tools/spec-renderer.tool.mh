@@ -1,0 +1,205 @@
+// Renders ACCEPTED Specification documents into deterministic Markdown — never
+// the reverse direction (blueprint 0004 §4: "JSON aceito -> Markdown; nunca o
+// inverso"). The MHL port of SpecificationRenderer.cs. Every method is a pure
+// function of its input: the same value always produces the same text, so a
+// golden-file diff is meaningful. Free-text fields are backslash-escaped so a
+// pathological value cannot smuggle in Markdown syntax.
+//
+export tool SpecRenderer {
+    escape(text: any) : string -> {
+        if (text == null) { return "" }
+        var s = "${text}"
+        s = s.replace("\\", "\\\\")
+        s = s.replace("*", "\\*")
+        s = s.replace("_", "\\_")
+        s = s.replace("`", "\\`")
+        s = s.replace("[", "\\[")
+        s = s.replace("]", "\\]")
+        s = s.replace("<", "\\<")
+        s = s.replace(">", "\\>")
+        s = s.replace("#", "\\#")
+        s = s.replace("|", "\\|")
+        return s
+    }
+
+    join_ids(ids: any[]) : string -> {
+        return (ids ?? []).map((id) -> self.escape(id)).join(", ")
+    }
+
+    bullets(items: any[]) : string -> {
+        if (items == null || items.is_empty()) { return "_None._\n\n" }
+        return items.map((it) -> "- " + self.escape(it)).join("\n") + "\n\n"
+    }
+
+    render_prd(prd: object) : string -> {
+        var out = "# Product Requirements Document\n\n"
+        out = out + "## Vision\n" + self.escape(prd?.vision) + "\n\n"
+
+        out = out + "## Goals\n"
+        var goals = prd?.goals ?? []
+        if (goals.is_empty()) { out = out + "_None._\n\n" } else {
+            for (var x in goals) { out = out + "- **" + self.escape(x?.id) + ":** " + self.escape(x?.statement) + "\n" }
+            out = out + "\n"
+        }
+
+        out = out + "## Success Metrics\n"
+        var metrics = prd?.successMetrics ?? []
+        if (metrics.is_empty()) { out = out + "_None._\n\n" } else {
+            for (var x in metrics) {
+                out = out + "- **" + self.escape(x?.id) + "** (" + self.escape(x?.goalId) + "): " + self.escape(x?.measure) + " -> " + self.escape(x?.target) + "\n"
+            }
+            out = out + "\n"
+        }
+
+        out = out + "## Non-Goals\n" + self.bullets(prd?.nonGoals ?? [])
+        out = out + "## Scope\n" + self.bullets(prd?.scope ?? [])
+
+        out = out + "## Risks\n"
+        var risks = prd?.risks ?? []
+        if (risks.is_empty()) { out = out + "_None._\n\n" } else {
+            for (var x in risks) {
+                out = out + "- **" + self.escape(x?.id) + "** (" + self.escape(x?.severity) + "): " + self.escape(x?.description) + " — mitigation: " + self.escape(x?.mitigation) + "\n"
+            }
+            out = out + "\n"
+        }
+
+        out = out + "## Decisions\n"
+        var decisions = prd?.decisions ?? []
+        if (decisions.is_empty()) { out = out + "_None._\n\n" } else {
+            for (var x in decisions) {
+                out = out + "- **" + self.escape(x?.id) + ":** " + self.escape(x?.statement) + " — rationale: " + self.escape(x?.rationale) + "\n"
+            }
+            out = out + "\n"
+        }
+
+        out = out + "## Open Questions\n"
+        var questions = prd?.openQuestions ?? []
+        if (questions.is_empty()) { out = out + "_None._\n" } else {
+            for (var x in questions) {
+                var tag = if (x?.blocking == true) "blocking" else "non-blocking"
+                out = out + "- **" + self.escape(x?.id) + "** [" + tag + "]: " + self.escape(x?.question) + "\n"
+            }
+        }
+        return out
+    }
+
+    render_srs(srs: object) : string -> {
+        var out = "# Software Requirements Specification\n\n"
+
+        out = out + "## Functional Requirements\n"
+        var fr = srs?.functionalRequirements ?? []
+        if (fr.is_empty()) { out = out + "_None._\n\n" } else {
+            for (var x in fr) {
+                out = out + "- **" + self.escape(x?.id) + "** [" + self.join_ids(x?.goalIds ?? []) + "]: " + self.escape(x?.statement) + "\n"
+            }
+            out = out + "\n"
+        }
+
+        out = out + "## Quality Requirements\n"
+        var qr = srs?.qualityRequirements ?? []
+        if (qr.is_empty()) { out = out + "_None._\n\n" } else {
+            for (var x in qr) {
+                out = out + "- **" + self.escape(x?.id) + "** [" + self.join_ids(x?.goalIds ?? []) + "]: " + self.escape(x?.statement) + "\n"
+            }
+            out = out + "\n"
+        }
+
+        out = out + "## Acceptance Criteria\n"
+        var acs = srs?.acceptanceCriteria ?? []
+        if (acs.is_empty()) { out = out + "_None._\n\n" } else {
+            for (var x in acs) {
+                out = out + "- **" + self.escape(x?.id) + "** (" + self.join_ids(x?.requirementIds ?? []) + ") — Given " + self.escape(x?.given) + ", When " + self.escape(x?.when) + ", Then " + self.escape(x?.then) + "\n"
+            }
+            out = out + "\n"
+        }
+
+        out = out + "## Interfaces\n"
+        var ifs = srs?.interfaces ?? []
+        if (ifs.is_empty()) { out = out + "_None._\n\n" } else {
+            for (var x in ifs) {
+                out = out + "- **" + self.escape(x?.id) + "** (" + self.join_ids(x?.requirementIds ?? []) + ") " + self.escape(x?.name) + ": " + self.escape(x?.description) + "\n"
+            }
+            out = out + "\n"
+        }
+
+        out = out + "## Data Rules\n"
+        var drs = srs?.dataRules ?? []
+        if (drs.is_empty()) { out = out + "_None._\n\n" } else {
+            for (var x in drs) {
+                out = out + "- **" + self.escape(x?.id) + "** (" + self.join_ids(x?.requirementIds ?? []) + "): " + self.escape(x?.rule) + "\n"
+            }
+            out = out + "\n"
+        }
+
+        var delivery = srs?.delivery
+        out = out + "## Delivery\n"
+        out = out + "- **Target:** " + self.escape(delivery?.target) + "\n"
+        out = out + "- **Verification Strategy:** " + self.escape(delivery?.verificationStrategy) + "\n"
+        var boot = if (delivery?.isBootstrap == true) "yes" else "no"
+        out = out + "- **Bootstrap:** " + boot + "\n"
+        return out
+    }
+
+    render_sdd(sdd: object) : string -> {
+        var out = "# Software Design Document\n\n"
+
+        var content = sdd?.designContent
+        if (content == null) { content = "" } else { content = "${content}" }
+        if (content.trim() != "") {
+            // Intentionally raw Markdown: escaping would destroy Mermaid diagrams,
+            // fenced code blocks, tables and folder trees the SDD preserves from
+            // source-backed design context.
+            out = out + content.trim() + "\n\n"
+        }
+
+        out = out + "## Architecture Decision Records\n"
+        var adrs = sdd?.adrs ?? []
+        if (adrs.is_empty()) { out = out + "_None._\n\n" } else {
+            for (var x in adrs) {
+                out = out + "- **" + self.escape(x?.id) + "** [" + self.join_ids(x?.requirementIds ?? []) + "] " + self.escape(x?.title) + ": " + self.escape(x?.decision) + " — rationale: " + self.escape(x?.rationale) + "\n"
+            }
+            out = out + "\n"
+        }
+
+        out = out + "## Controls\n"
+        var controls = sdd?.controls ?? []
+        if (controls.is_empty()) { out = out + "_None._\n" } else {
+            for (var x in controls) {
+                out = out + "- **" + self.escape(x?.id) + "** [" + self.join_ids(x?.requirementIds ?? []) + "] " + self.escape(x?.name) + ": " + self.escape(x?.description) + "\n"
+            }
+        }
+        return out
+    }
+
+    render_readiness(verdict: object) : string -> {
+        var out = "# Readiness Handoff\n\n"
+        out = out + "## Verdict\n" + self.escape(verdict?.verdict) + "\n\n"
+        out = out + "## Conflicts\n" + self.bullets(verdict?.conflicts ?? [])
+        out = out + "## Residuals\n" + self.bullets(verdict?.residuals ?? [])
+
+        out = out + "## Slices\n"
+        var slices = verdict?.slices ?? []
+        if (slices.is_empty()) {
+            out = out + "_None._\n"
+            return out
+        }
+        for (var s in slices) {
+            out = out + "### " + self.escape(s?.id) + " — " + self.escape(s?.classification) + "\n"
+            out = out + "- **Goal:** " + self.escape(s?.goal) + "\n"
+            out = out + "- **In Scope:** " + self.join_ids(s?.inScope ?? []) + "\n"
+            out = out + "- **Out of Scope:** " + self.join_ids(s?.outOfScope ?? []) + "\n"
+            out = out + "- **Observable Outcome:** " + self.escape(s?.observableOutcome) + "\n"
+            out = out + "- **Requirements:** " + self.join_ids(s?.requirementIds ?? []) + "\n"
+            out = out + "- **ADRs:** " + self.join_ids(s?.adrIds ?? []) + "\n"
+            out = out + "- **Depends On:** " + self.join_ids(s?.dependsOn ?? []) + "\n"
+            out = out + "- **Contracts:** " + self.join_ids(s?.contracts ?? []) + "\n"
+            out = out + "- **Happy Path:** " + self.escape(s?.happyPath) + "\n"
+            out = out + "- **Failure Path:** " + self.escape(s?.failurePath) + "\n"
+            out = out + "- **Acceptance Criterion:** " + self.escape(s?.acceptanceCriterion) + "\n"
+            out = out + "- **Suggested Target:** " + self.escape(s?.suggestedTarget) + "\n"
+            out = out + "- **Suggested Verification Strategy:** " + self.escape(s?.suggestedVerificationStrategy) + "\n"
+            out = out + "\n"
+        }
+        return out
+    }
+}

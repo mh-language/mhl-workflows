@@ -1,0 +1,250 @@
+use { SpecConfig as config } from "spec-config.tool.mh"
+use { SpecRenderer as renderer } from "spec-renderer.tool.mh"
+use { SpecStore as store } from "spec-store.tool.mh"
+use { Digest as digest } from "digest.tool.mh"
+
+// Publishes the four accepted Specification documents plus the machine-readable
+// Development plan to specs/active/ — the MHL port of SpecificationPublisher.cs
+// (blueprint 0004 §6 "Publicação segura"). This is the only writer of that
+// directory. It renders accepted documents, refuses to touch the destination if
+// it contains anything it does not recognise as its own from a previous publish,
+// then writes exactly the five known filenames and records an ownership manifest.
+// It never deletes or globs the directory.
+export tool SpecPublisher {
+    prd_file() : string -> "00-prd.md"
+    srs_file() : string -> "10-software-requirements-specification.md"
+    sdd_file() : string -> "20-software-design-document.md"
+    readiness_file() : string -> "30-readiness-handoff.md"
+    plan_file() : string -> "40-development-plan.json"
+
+    expected() : string[] -> [
+        self.prd_file(), self.srs_file(), self.sdd_file(),
+        self.readiness_file(), self.plan_file()
+    ]
+
+    // Renders the four documents into their published filenames, without touching
+    // disk. Used both by publish() and by the pre-publish byte-budget gate so the
+    // check sees exactly what would be written.
+    render_all(prd: object, srs: object, sdd: object, readiness: object) : object -> {
+        var out = {}
+        out[self.prd_file()] = renderer.render_prd(prd)
+        out[self.srs_file()] = renderer.render_srs(srs)
+        out[self.sdd_file()] = renderer.render_sdd(sdd)
+        out[self.readiness_file()] = renderer.render_readiness(readiness)
+        return out
+    }
+
+    all_requirements(srs: object) : any[] -> {
+        var out = srs?.functionalRequirements ?? []
+        out += srs?.qualityRequirements ?? []
+        return out
+    }
+
+    find_by_id(items: any[], id) : object -> {
+        for (var item in items ?? []) {
+            if (item?.id == id) return item
+        }
+        return null
+    }
+
+    slice_ids(slices: any[]) : object -> {
+        var ids = {}
+        var feature_id = 0
+        for (var slice in slices ?? []) {
+            feature_id = feature_id + 1
+            ids[slice?.id] = feature_id
+        }
+        return ids
+    }
+
+    requirement_context(slice: object, requirements: any[]) : string[] -> {
+        var context = []
+        for (var requirement_id in slice?.requirementIds ?? []) {
+            var requirement = self.find_by_id(requirements, requirement_id)
+            context += [
+                if (requirement == null) "${requirement_id}"
+                else "${requirement_id}: " + (requirement?.statement ?? "")
+            ]
+        }
+        return context
+    }
+
+    decision_context(slice: object, sdd: object) : string[] -> {
+        var context = []
+        for (var adr_id in slice?.adrIds ?? []) {
+            var adr = self.find_by_id(sdd?.adrs, adr_id)
+            context += [
+                if (adr == null) "${adr_id}"
+                else "${adr_id}: " + (adr?.title ?? "")
+                    + ". Decision: " + (adr?.decision ?? "")
+                    + ". Rationale: " + (adr?.rationale ?? "")
+            ]
+        }
+        return context
+    }
+
+    acceptance_context(slice: object, srs: object) : string[] -> {
+        var context = [slice?.acceptanceCriterion ?? ""]
+        var requirement_ids = slice?.requirementIds ?? []
+        for (var criterion in srs?.acceptanceCriteria ?? []) {
+            var applies = false
+            for (var requirement_id in criterion?.requirementIds ?? []) {
+                if (requirement_ids.contains(requirement_id)) applies = true
+            }
+            if (applies) {
+                context += [
+                    (criterion?.id ?? "") + ": Given " + (criterion?.given ?? "")
+                        + ". When " + (criterion?.when ?? "")
+                        + ". Then " + (criterion?.then ?? "")
+                ]
+            }
+        }
+        return context
+    }
+
+    constraints_context(slice: object) : string[] -> {
+        var constraints = []
+        for (var out_of_scope in slice?.outOfScope ?? []) {
+            constraints += ["out of scope: ${out_of_scope}"]
+        }
+        for (var contract in slice?.contracts ?? []) {
+            constraints += [contract]
+        }
+        return constraints
+    }
+
+    slice_dependencies(slice: object, slice_ids: object) : any[] -> {
+        var dependencies = []
+        for (var dependency in slice?.dependsOn ?? []) {
+            if (slice_ids?.[dependency] != null) dependencies += [slice_ids?.[dependency]]
+        }
+        return dependencies
+    }
+
+    slice_references(slice: object) : any[] -> {
+        var references = []
+        for (var requirement_id in slice?.requirementIds ?? []) references += [requirement_id]
+        for (var adr_id in slice?.adrIds ?? []) references += [adr_id]
+        return references
+    }
+
+    slice_description(slice: object) : string -> {
+        return (slice?.goal ?? "") + ". Observable outcome: " + (slice?.observableOutcome ?? "")
+            + ". Happy path: " + (slice?.happyPath ?? "")
+            + ". Failure path: " + (slice?.failurePath ?? "") + "."
+    }
+
+    feature_from_slice(slice: object, feature_id: number, slice_ids: object, requirements: any[], sdd: object, srs: object) : object -> {
+        return {
+            id: feature_id,
+            title: slice?.goal ?? "",
+            priority: feature_id,
+            dependsOn: self.slice_dependencies(slice, slice_ids),
+            description: self.slice_description(slice),
+            references: self.slice_references(slice),
+            implementationContext: {
+                requirements: self.requirement_context(slice, requirements),
+                decisions: self.decision_context(slice, sdd),
+                constraints: self.constraints_context(slice),
+                files: [slice?.suggestedTarget ?? ""],
+                acceptance: self.acceptance_context(slice, srs)
+            },
+            status: "pending"
+        }
+    }
+
+    // Builds the plan consumed by mhl.workflow.development — one feature per
+    // readiness slice, in the shape FeatureStore.cap_features expects.
+    build_development_plan(srs: object, sdd: object, readiness: object) : object -> {
+        var slices = readiness?.slices ?? []
+        var slice_ids = self.slice_ids(slices)
+        var requirements = self.all_requirements(srs)
+        var features = []
+        var feature_id = 0
+
+        for (var slice in slices) {
+            feature_id = feature_id + 1
+            features += [self.feature_from_slice(slice, feature_id, slice_ids, requirements, sdd, srs)]
+        }
+
+        return { features: features }
+    }
+
+    basename(path: string) : string -> {
+        var parts = path.split("/")
+        return parts[parts.size() - 1]
+    }
+
+    // Renders, ownership-checks, writes the five files and records the manifest.
+    // Returns { success, error, digests }. The destination is left completely
+    // untouched if it holds any file this flow does not recognise as its own.
+    publish(prd: object, srs: object, sdd: object, readiness: object) : object -> {
+        var dest = config.destination_folder()
+        var rendered = self.render_all(prd, srs, sdd, readiness)
+        var plan_json = json.stringify(self.build_development_plan(srs, sdd, readiness))
+        var files = self.expected()
+
+        var owned = []
+        if (fs.exists(store.manifest_path())) {
+            try {
+                var m = json.parse(fs.read(store.manifest_path()))
+                if (m.ownedFiles != null) { owned = m.ownedFiles }
+            } catch (e) {
+                log.warn("[spec] could not read publish manifest: ${e}")
+            }
+        }
+
+        var existing = []
+        try {
+            if (fs.exists(dest)) { existing = fs.list(dest) }
+        } catch (e) {
+            log.warn("[spec] could not list ${dest}: ${e}")
+        }
+        for (var p in existing) {
+            var name = self.basename(p)
+            if (!files.contains(name)) {
+                return { success: false, error: "unrecognized file '${name}' in ${dest}; publish blocked.", digests: null }
+            }
+            if (!owned.contains(name)) {
+                return { success: false, error: "file '${name}' in ${dest} is not owned by a previous publish of this flow; publish blocked.", digests: null }
+            }
+        }
+
+        // Ownership check passed: write exactly the five known filenames.
+        fs.write(dest + "/" + self.prd_file(), rendered[self.prd_file()])
+        fs.write(dest + "/" + self.srs_file(), rendered[self.srs_file()])
+        fs.write(dest + "/" + self.sdd_file(), rendered[self.sdd_file()])
+        fs.write(dest + "/" + self.readiness_file(), rendered[self.readiness_file()])
+        fs.write(dest + "/" + self.plan_file(), plan_json)
+
+        // Postcondition: re-read every file and confirm it matches what we staged.
+        var check = self.render_all(prd, srs, sdd, readiness)
+        var expected_content = {}
+        expected_content[self.prd_file()] = check[self.prd_file()]
+        expected_content[self.srs_file()] = check[self.srs_file()]
+        expected_content[self.sdd_file()] = check[self.sdd_file()]
+        expected_content[self.readiness_file()] = check[self.readiness_file()]
+        expected_content[self.plan_file()] = plan_json
+
+        var digests = {}
+        for (var name in files) {
+            var path = dest + "/" + name
+            if (!fs.exists(path)) {
+                return { success: false, error: "postcondition failed: '${name}' is missing after write.", digests: null }
+            }
+            if (fs.read(path) != expected_content[name]) {
+                return { success: false, error: "postcondition failed: '${name}' on disk does not match what was published.", digests: null }
+            }
+            digests[name] = digest.file(path)
+        }
+
+        var manifest = {
+            ownedFiles: files,
+            fileDigests: digests,
+            publishedAt: time.format(time.now(), "yyyy-MM-dd HH:mm:ss")
+        }
+        fs.write(store.manifest_path(), json.stringify(manifest))
+
+        return { success: true, error: "", digests: digests }
+    }
+}

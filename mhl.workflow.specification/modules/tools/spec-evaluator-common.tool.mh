@@ -1,0 +1,52 @@
+// Shared defensive helpers for specification evaluators. These helpers keep
+// malformed proposal handling consistent without coupling document rules.
+export tool SpecEvaluatorCommon {
+    f(obj: any, name: string) : any -> obj?.[name]
+
+    str(value: any) : string -> if (is_null(value)) "" else "${value}"
+
+    list(value: any) : any[] -> if (!is_array(value)) [] else value
+
+    result(violations: string[]) : object -> { passed: violations.is_empty(), violations: violations }
+
+    blank(value: any) : boolean -> is_null(value) || (is_string(value) && value.trim() == "")
+
+    dup_ids(ids: any[]) : any[] -> {
+        var seen = []
+        var dups = []
+        for (var id in ids) {
+            if (seen.contains(id) && !dups.contains(id)) dups += [id]
+            seen += [id]
+        }
+        return dups
+    }
+
+    ids_of(items: any[]) : any[] -> {
+        var out = []
+        for (var it in self.list(items)) out += [self.f(it, "id")]
+        return out
+    }
+
+    requirement_ids(srs: object) : any[] -> {
+        var out = []
+        for (var r in self.list(srs?.functionalRequirements)) out += [self.f(r, "id")]
+        for (var r in self.list(srs?.qualityRequirements)) out += [self.f(r, "id")]
+        return out
+    }
+
+    adr_ids(sdd: object) : any[] -> self.ids_of(self.list(sdd?.adrs))
+
+    join_violations(violations: string[]) : string -> self.list(violations).join("; ")
+
+    retry_block(violations: string[]) : string -> {
+        if (violations == null || violations.is_empty()) return ""
+        var body = self.list(violations).map((v) -> "- " + v).join("\n")
+        return "The previous proposal did not pass validation:\n${body}\n\nFix every issue listed above and rewrite the JSON file at the exact same path.\n"
+    }
+
+    dup_violations(v: any[], ids: any[], code: string, kind: string) : any[] -> {
+        var out = v
+        for (var d in self.dup_ids(ids)) out += ["${code}: duplicate ${kind} id ${d}"]
+        return out
+    }
+}

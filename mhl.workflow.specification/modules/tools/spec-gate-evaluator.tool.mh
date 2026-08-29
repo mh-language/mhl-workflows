@@ -1,0 +1,40 @@
+use { SpecEvaluatorCommon as common } from "spec-evaluator-common.tool.mh"
+use { ReadinessEvaluator as readiness } from "readiness-evaluator.tool.mh"
+
+export tool SpecGateEvaluator {
+    evaluate_approval(decision: object, current_bundle_digest: string) : object -> {
+        if (decision == null) {
+            return common.result(["APPROVAL_PROPOSAL_MISSING: the approval proposal is missing or not valid JSON"])
+        }
+        var v = []
+        var word = common.str(decision?.decision)
+        if (word != "approved" && word != "revise") {
+            v += ["APPROVAL_DECISION_INVALID: decision ${word} is not one of approved, revise"]
+        }
+        if (current_bundle_digest == "" || common.str(decision?.bundleDigest) != current_bundle_digest) {
+            v += ["APPROVAL_BUNDLE_DIGEST_STALE: decision.bundleDigest ${common.str(decision?.bundleDigest)} does not match the current bundle digest ${current_bundle_digest}"]
+        }
+        if (common.blank(decision?.rationale)) v += ["APPROVAL_RATIONALE_MISSING: rationale is required"]
+        return common.result(v)
+    }
+
+    evaluate_development_readiness(prd: object, srs: object, sdd: object, readiness_value: object, approval_digest: string, current_digest: string, rendered: object, docs_max_chars: number) : object -> {
+        var v = []
+        if (current_digest == "" || approval_digest != current_digest) {
+            v += ["DEV_READINESS_BUNDLE_DIGEST_STALE: approval bundle digest ${approval_digest} does not match the current bundle digest ${current_digest}"]
+        }
+        var blocking = []
+        for (var q in common.list(prd?.openQuestions)) if (q?.blocking == true) blocking += [q?.id]
+        if (!blocking.is_empty()) {
+            v += ["DEV_READINESS_BLOCKING_QUESTION_OPEN: unresolved blocking open question(s): " + blocking.join(", ")]
+        }
+        var readiness_result = readiness.evaluate(readiness_value, common.requirement_ids(srs), common.adr_ids(sdd))
+        for (var rv in readiness_result.violations) v += [rv]
+        var total = 0
+        for (var key in rendered?.keys() ?? []) total = total + rendered[key].size()
+        if (total > docs_max_chars) {
+            v += ["DEV_READINESS_BUNDLE_TOO_LARGE: rendered bundle exceeds the docsMaxChars ceiling"]
+        }
+        return common.result(v)
+    }
+}

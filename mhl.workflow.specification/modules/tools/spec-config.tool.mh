@@ -1,0 +1,31 @@
+// Tunable guards for the Specification flow. Mirrors the constants that live in
+// dotnet/Flows.Specification (StepBudget, MaxIdeaUtf8Bytes, the "no máximo duas
+// recascatas" note, the 10-slice readiness cap) and Harness.Engine.HarnessConfig
+// (DocsMaxChars). Kept in one place so a run can be retuned without touching the
+// state machine.
+export tool SpecConfig {
+    // Attempts a single documental phase gets before the run stops for a human.
+    // The .NET flow retries "in place" under the harness step budget; here the
+    // budget is explicit per phase.
+    max_attempts() : number -> 3
+
+    // Blueprint 0004 §2: review may send the run back through
+    // product/analysis/design at most twice; a third failing verdict is terminal.
+    max_recascades() : number -> 2
+
+    // Human-curated input directory ("documentos em pasta de fontes").
+    sources_folder() : string -> "specs/sources"
+
+    // The only directory the publisher ever writes ("Publicação segura").
+    destination_folder() : string -> "specs/active"
+
+    // Pre-publish byte budget for the rendered bundle (Harness.Engine
+    // DocsReader / HarnessConfig.DocsMaxChars analogue).
+    docs_max_chars() : number -> 120000
+
+    // Readiness slice cap (blueprint 0004 §7 / ReadinessEvaluator).
+    max_slices() : number -> 10
+
+    // Canonical-JSON ceiling for a single idea proposal (IdeaEvaluator).
+    max_idea_chars() : number -> 20000
+}
