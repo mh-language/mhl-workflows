@@ -1,0 +1,236 @@
+{
+    "features": [
+        {
+            "dependsOn": [],
+            "description": "Establish the reproducible local Postgres foundation and API startup path.. Observable outcome: A clean local environment can start a healthy Postgres, initialize the tasks schema automatically, and expose a database-ready API startup path without leaking credentials.. Happy path: Compose starts Postgres and waits for health, the API connects using TODO_DB_CONNECTION, creates the tasks table idempotently, and becomes ready for database-dependent routes.. Failure path: If Postgres is unavailable or configuration is invalid, bounded retries end deterministically and startup or affected requests fail without credentials, stack traces, or provider details..",
+            "id": 1,
+            "implementationContext": {
+                "acceptance": [
+                    "Two successive documented startup runs succeed against a fresh and an already initialized database, and a configuration/dependency failure is sanitized and deterministic.",
+                    "AC-6: Given A task has been created and Postgres remains available. When Only the API process is stopped and restarted. Then A subsequent list or get operation returns the same task id, title, and status",
+                    "AC-9: Given The Postgres service and its persistent volume are available. When The API is restarted without recreating the database volume. Then Previously persisted task data remains available",
+                    "AC-10: Given A clean local Postgres database is available. When The API starts. Then The required schema is created automatically and a second startup does not fail because the schema already exists",
+                    "AC-11: Given TODO_DB_CONNECTION is configured or the documented safe local default is used. When The application starts. Then It attempts to connect using that configuration and does not expose credentials in responses or logs",
+                    "AC-12: Given Postgres is unavailable or a database operation fails. When A client invokes an affected endpoint. Then The API returns a stable sanitized Problem Details response containing no credentials, stack trace, or provider-internal detail",
+                    "AC-14: Given A clean checkout with Docker available. When The documented Compose startup and verification sequence is run. Then Postgres becomes ready through the health check, the API connects with bounded retries, and the sequence completes reproducibly"
+                ],
+                "constraints": [
+                    "out of scope: Task business endpoints",
+                    "out of scope: Authentication, cloud, production deployment, and schema migration tooling",
+                    "Postgres is provided by exactly one Compose service with a persistent volume and positive readiness healthcheck.",
+                    "The API reads TODO_DB_CONNECTION, uses only the documented local default when explicitly local, and exposes sanitized dependency failures.",
+                    "Startup creates the required tasks schema safely when it is absent or already present."
+                ],
+                "decisions": [
+                    "ADR-002: .NET and ASP.NET Core. Decision: Implement the API in C# on ASP.NET Core using a supported .NET LTS SDK pinned in global.json.. Rationale: The stack is mandatory, mature, and supplies routing, JSON, Problem Details, dependency injection, and the local test-host integration point; exact versions are pinned during implementation.",
+                    "ADR-004: Single Postgres in Docker Compose. Decision: Use one pinned Postgres service with a persistent volume and healthcheck; Compose contains no API or other service.. Rationale: A real database is required for persistence and integration fidelity. The local volume demonstrates API-only restart durability, while cloud, managed, and production infrastructure remain out of scope.",
+                    "ADR-005: Idempotent schema bootstrap at API startup. Decision: Run an idempotent initial tasks table definition through a startup component before database-dependent routes serve requests.. Rationale: CREATE TABLE IF NOT EXISTS works against both a fresh database and an existing baseline without a mandatory migration tool. Any later schema evolution requires a new explicit strategy and ADR.",
+                    "ADR-009: Environment-based database configuration. Decision: Read TODO_DB_CONNECTION through configuration and use a documented local-only default only in the explicit local environment; redact secrets from logs.. Rationale: The override supports reproducible local testing without committing credentials. A secret manager is outside the local baseline, so the boundary and limitations must remain explicit."
+                ],
+                "files": [
+                    "app/docker-compose.yml, app/src/TodoApp.Api/Infrastructure/Database, app/src/TodoApp.Api/Program.cs, app/init.sh"
+                ],
+                "requirements": [
+                    "RF-6: The API shall persist each task's id, title, and status in Postgres and shall read those records from Postgres for subsequent requests, preserving them when only the API process is stopped and restarted.",
+                    "RF-7: On local startup, the application shall initialize the required task schema in Postgres automatically and shall be safe to run against an already initialized schema.",
+                    "RF-8: The application shall obtain its Postgres connection from TODO_DB_CONNECTION, document a safe local default without committing credentials, and fail startup or requests with a sanitized diagnostic when the dependency is unavailable.",
+                    "RQ-1: The local environment shall be reproducible through Docker Compose with one Postgres service, a persistent volume, readiness checks, bounded connection retry behavior, and documented commands for startup and verification."
+                ]
+            },
+            "priority": 1,
+            "references": [
+                "RF-6",
+                "RF-7",
+                "RF-8",
+                "RQ-1",
+                "ADR-002",
+                "ADR-004",
+                "ADR-005",
+                "ADR-009"
+            ],
+            "status": "pending",
+            "title": "Establish the reproducible local Postgres foundation and API startup path."
+        },
+        {
+            "dependsOn": [
+                1
+            ],
+            "description": "Define the canonical HTTP/error boundary and preserve the vertical-slice architecture.. Observable outcome: Every endpoint can use one documented JSON representation and deterministic sanitized Problem Details behavior while operation-specific rules remain in their own slices.. Happy path: Route composition dispatches a request to its owning feature slice, which returns the canonical task JSON or the shared sanitized error shape.. Failure path: Invalid input, missing resources, and database failures are classified at the boundary into deterministic 400, 404, or 503 Problem Details without logging sensitive payloads or raw exceptions..",
+            "id": 2,
+            "implementationContext": {
+                "acceptance": [
+                    "A structural review finds no generic layers or endpoint-specific rules in the shared kernel, and contract tests confirm deterministic JSON and sanitized Problem Details responses and logs.",
+                    "AC-7: Given A client submits invalid task input or an invalid status filter. When The API validates the request. Then It returns a stable Problem Details response with an appropriate client error status and no internal diagnostic",
+                    "AC-8: Given A client references a task that does not exist. When The client requests completion or editing. Then The API returns the documented not-found Problem Details response",
+                    "AC-12: Given Postgres is unavailable or a database operation fails. When A client invokes an affected endpoint. Then The API returns a stable sanitized Problem Details response containing no credentials, stack trace, or provider-internal detail",
+                    "AC-16: Given The implementation is reviewed. When The task operation code is inspected. Then Each operation remains cohesive in its vertical slice and no generic Controller, Service, or Repository layer has been introduced",
+                    "AC-17: Given Validation and dependency-failure tests are run. When Their responses and captured logs are inspected. Then The payloads and logs are deterministic and redact credentials, stack traces, and provider internals"
+                ],
+                "constraints": [
+                    "out of scope: Endpoint-specific SQL and business behavior",
+                    "out of scope: Generic Controller, Service, or Repository layers",
+                    "Successful task payloads contain id, titulo, and pendente or concluida status.",
+                    "Errors use application/problem+json with stable public fields and no credentials, stack traces, SQL, hostnames, or provider messages.",
+                    "Each operation owns its request handling, validation, persistence interaction, and response mapping; shared code contains only cross-cutting primitives."
+                ],
+                "decisions": [
+                    "ADR-001: Vertical slices per endpoint. Decision: Co-locate HTTP handling, validation, persistence SQL, mapping, and response construction for each task operation in its own feature slice.. Rationale: This preserves cohesion and isolated evolution for the small API while accepting deliberate duplication; layered or generic Controller/Service/Repository abstractions would add coupling and indirection.",
+                    "ADR-006: Minimal shared kernel. Decision: Share only the Task representation, pendente/concluida status domain, data source or connection creation, and common error primitives.. Rationale: Centralizing genuinely cross-cutting concerns avoids scattered configuration while preventing endpoint-specific rules and queries from becoming a shared layer.",
+                    "ADR-010: Canonical JSON and Problem Details contract. Decision: Expose id, titulo, and status with pendente or concluida values; use the specified HTTP statuses, Location on creation, ordered lists, and sanitized application/problem+json errors including 503 for dependency failures.. Rationale: A stable, interoperable contract makes client errors, missing resources, idempotent completion, deletion, and unavailable dependencies observable and testable without leaking internals."
+                ],
+                "files": [
+                    "app/src/TodoApp.Api/Infrastructure/Errors, app/src/TodoApp.Api/Domain, app/src/TodoApp.Api/Program.cs"
+                ],
+                "requirements": [
+                    "RF-9: Each task operation shall expose a stable JSON success contract and stable Problem Details responses for invalid input, a missing task, and dependency failures, without credentials, stack traces, or provider-internal details.",
+                    "RQ-3: The implementation shall use Vertical Slice Architecture with operation-specific request handling, validation, persistence interaction, and response mapping, plus only a minimal shared kernel and no generic Controller, Service, or Repository layers.",
+                    "RQ-4: All client-visible validation and dependency-failure responses shall be sanitized and deterministic, and logs shall redact connection secrets and other sensitive configuration values."
+                ]
+            },
+            "priority": 2,
+            "references": [
+                "RF-9",
+                "RQ-3",
+                "RQ-4",
+                "ADR-001",
+                "ADR-006",
+                "ADR-010"
+            ],
+            "status": "pending",
+            "title": "Define the canonical HTTP/error boundary and preserve the vertical-slice architecture."
+        },
+        {
+            "dependsOn": [
+                1,
+                2
+            ],
+            "description": "Deliver task creation, listing, and status filtering against real Postgres.. Observable outcome: A local HTTP client can create tasks and retrieve all or status-filtered tasks with persisted id, titulo, and status in stable JSON.. Happy path: Posting a trimmed non-empty titulo returns a new pendente task, and subsequent unfiltered or filtered GET requests return the expected ordered records.. Failure path: A missing, empty, or whitespace-only title and an invalid status filter return 400 without mutation; a database outage returns sanitized 503 Problem Details..",
+            "id": 3,
+            "implementationContext": {
+                "acceptance": [
+                    "Real HTTP/Postgres tests prove creation, normalization, empty-list behavior, ordering, both valid filters, invalid input, persistence, and stable response shapes.",
+                    "AC-1: Given The API and Postgres are available. When A client posts a valid non-empty task title. Then The API returns the created task with an id, the submitted title, and incomplete status, and the record is persisted",
+                    "AC-2: Given Persisted tasks exist. When A client requests the task list. Then The API returns every available task with id, title, and status in the documented JSON shape",
+                    "AC-3: Given Persisted tasks exist with more than one status. When A client requests a valid status filter. Then The response contains only tasks with that status",
+                    "AC-7: Given A client submits invalid task input or an invalid status filter. When The API validates the request. Then It returns a stable Problem Details response with an appropriate client error status and no internal diagnostic"
+                ],
+                "constraints": [
+                    "out of scope: Completion, editing, and deletion",
+                    "out of scope: Pagination, authentication, and external deployment",
+                    "POST /tasks returns 201 with the created task and Location; invalid or whitespace-only titulo returns 400 Problem Details.",
+                    "GET /tasks returns a 200 array ordered by ascending id and supports only pendente or concluida as status filters.",
+                    "All client values are validated before mutation and persisted through parameterized Npgsql commands."
+                ],
+                "decisions": [
+                    "ADR-001: Vertical slices per endpoint. Decision: Co-locate HTTP handling, validation, persistence SQL, mapping, and response construction for each task operation in its own feature slice.. Rationale: This preserves cohesion and isolated evolution for the small API while accepting deliberate duplication; layered or generic Controller/Service/Repository abstractions would add coupling and indirection.",
+                    "ADR-003: Direct Npgsql access per slice. Decision: Register one singleton NpgsqlDataSource and let each slice execute its own parameterized commands and explicit row mapping.. Rationale: Direct use keeps SQL and mapping with the operation that owns them, provides real Postgres fidelity, and avoids the generic abstractions and tracking conventions of Dapper or EF Core.",
+                    "ADR-010: Canonical JSON and Problem Details contract. Decision: Expose id, titulo, and status with pendente or concluida values; use the specified HTTP statuses, Location on creation, ordered lists, and sanitized application/problem+json errors including 503 for dependency failures.. Rationale: A stable, interoperable contract makes client errors, missing resources, idempotent completion, deletion, and unavailable dependencies observable and testable without leaking internals."
+                ],
+                "files": [
+                    "app/src/TodoApp.Api/Features/AddTask, app/src/TodoApp.Api/Features/ListTasks"
+                ],
+                "requirements": [
+                    "RF-1: The API shall accept an unauthenticated JSON POST request to create a task with a non-empty title, persist the task with a generated identifier and initial incomplete status, and return the created task as stable JSON.",
+                    "RF-2: The API shall accept an unauthenticated JSON GET request to list tasks and return stable JSON containing each task's id, title, and status.",
+                    "RF-3: The API shall support filtering the task list by task status and shall return only tasks matching the requested valid status value."
+                ]
+            },
+            "priority": 3,
+            "references": [
+                "RF-1",
+                "RF-2",
+                "RF-3",
+                "ADR-001",
+                "ADR-003",
+                "ADR-010"
+            ],
+            "status": "pending",
+            "title": "Deliver task creation, listing, and status filtering against real Postgres."
+        },
+        {
+            "dependsOn": [
+                1,
+                2
+            ],
+            "description": "Deliver completion, title editing, and removal with correct mutation and not-found semantics.. Observable outcome: A local HTTP client can complete, edit, and remove existing tasks, while repeated completion is safe and missing-task operations do not mutate data.. Happy path: An existing task is completed idempotently, edited without changing status, or deleted, and each subsequent read reflects the persisted result.. Failure path: Invalid ids or titles and nonexistent tasks return deterministic 400 or 404 Problem Details with no unintended mutation; database failures return sanitized 503..",
+            "id": 4,
+            "implementationContext": {
+                "acceptance": [
+                    "Real HTTP/Postgres tests prove completion and repetition, editing of pending and completed tasks, deletion, missing-task behavior, and preservation of unaffected fields.",
+                    "AC-4: Given An incomplete task exists. When A client requests completion for that task. Then The API returns success and subsequent reads show the task as complete",
+                    "AC-5: Given An existing task and a valid replacement title exist. When A client submits the edit request. Then The API returns success and subsequent reads show the replacement title",
+                    "AC-8: Given A client references a task that does not exist. When The client requests completion or editing. Then The API returns the documented not-found Problem Details response",
+                    "AC-13: Given An existing task is available. When A client requests its removal. Then The API returns the documented deletion success response and subsequent list or get operations no longer return the task; a missing task returns not-found Problem Details"
+                ],
+                "constraints": [
+                    "out of scope: Reopening tasks, version history, soft deletion, audit, and strong concurrency guarantees",
+                    "PATCH /tasks/{id}/complete returns 200 with concluida for an existing task, including an already completed task.",
+                    "PUT /tasks/{id} returns 200 with the normalized replacement titulo and preserves status.",
+                    "DELETE /tasks/{id} returns 204 with no body; missing ids return 404 Problem Details."
+                ],
+                "decisions": [
+                    "ADR-001: Vertical slices per endpoint. Decision: Co-locate HTTP handling, validation, persistence SQL, mapping, and response construction for each task operation in its own feature slice.. Rationale: This preserves cohesion and isolated evolution for the small API while accepting deliberate duplication; layered or generic Controller/Service/Repository abstractions would add coupling and indirection.",
+                    "ADR-003: Direct Npgsql access per slice. Decision: Register one singleton NpgsqlDataSource and let each slice execute its own parameterized commands and explicit row mapping.. Rationale: Direct use keeps SQL and mapping with the operation that owns them, provides real Postgres fidelity, and avoids the generic abstractions and tracking conventions of Dapper or EF Core.",
+                    "ADR-010: Canonical JSON and Problem Details contract. Decision: Expose id, titulo, and status with pendente or concluida values; use the specified HTTP statuses, Location on creation, ordered lists, and sanitized application/problem+json errors including 503 for dependency failures.. Rationale: A stable, interoperable contract makes client errors, missing resources, idempotent completion, deletion, and unavailable dependencies observable and testable without leaking internals."
+                ],
+                "files": [
+                    "app/src/TodoApp.Api/Features/CompleteTask, app/src/TodoApp.Api/Features/EditTask, app/src/TodoApp.Api/Features/RemoveTask"
+                ],
+                "requirements": [
+                    "RF-4: The API shall accept an unauthenticated request to complete an existing task, persist its status as complete, and return the updated task as stable JSON.",
+                    "RF-5: The API shall accept an unauthenticated JSON request to edit an existing task title, persist the updated title, and return the updated task as stable JSON.",
+                    "RF-10: The API shall accept an unauthenticated request to remove an existing task and shall return the documented successful deletion response; attempting to remove a missing task shall return the documented Problem Details response."
+                ]
+            },
+            "priority": 4,
+            "references": [
+                "RF-4",
+                "RF-5",
+                "RF-10",
+                "ADR-001",
+                "ADR-003",
+                "ADR-010"
+            ],
+            "status": "pending",
+            "title": "Deliver completion, title editing, and removal with correct mutation and not-found semantics."
+        },
+        {
+            "dependsOn": [
+                3,
+                4
+            ],
+            "description": "Prove the complete local behavior, durability, isolation, and reproducibility contract.. Observable outcome: One documented verification flow demonstrates all six task operations, principal failures, schema/startup behavior, and task durability across an API-only restart.. Happy path: The aggregate command runs the pure and integration suites against Compose-managed Postgres, recreates the API host for the durability scenario, and passes repeatedly.. Failure path: A suite failure, state leak, unavailable dependency, failed restart durability check, or leaked diagnostic produces a non-zero result and an actionable sanitized failure category..",
+            "id": 5,
+            "implementationContext": {
+                "acceptance": [
+                    "Individual, full-suite, and two consecutive verification runs cover create, list, filter, complete, edit, remove, validation, not-found, dependency failure, schema initialization, isolation, and API-only restart durability with no gaps.",
+                    "AC-15: Given The project is checked out and local dependencies are available. When The documented test command is run. Then Pure unit tests and isolated serial real-HTTP/real-Postgres integration tests execute and cover create, list, filter, complete, edit, remove, validation, not-found, durability, and dependency-failure behavior"
+                ],
+                "constraints": [
+                    "out of scope: Cloud CI, production operations, backups, high availability, and performance SLAs",
+                    "The test command is successful only when both unit and integration suites pass.",
+                    "Integration tests use real HTTP and real Postgres, execute serially, and isolate each case without relying on ordering.",
+                    "The API can be recreated while the Postgres service and volume remain available, preserving id, titulo, and status."
+                ],
+                "decisions": [
+                    "ADR-007: Two-level xUnit verification. Decision: Use pure unit tests for slice rules and mappings, plus real HTTP and real Postgres integration tests through an ASP.NET test host.. Rationale: Unit tests provide fast diagnosis for pure behavior, while real integration tests prove the public contract, database behavior, schema, persistence, and dependency failures; mocks or an in-memory store cannot provide that proof.",
+                    "ADR-008: Serial integration isolation. Decision: Place integration tests in a non-parallel collection and truncate tasks plus reset its identity sequence before every test case using a dedicated connection.. Rationale: This makes individual, suite, and repeated runs deterministic without relying on test order. A database per test is slower and a transaction cannot easily span the HTTP calls under test."
+                ],
+                "files": [
+                    "app/tests/TodoApp.UnitTests, app/tests/TodoApp.IntegrationTests, app/verify-feature.sh"
+                ],
+                "requirements": [
+                    "RQ-2: Verification shall include pure unit tests and isolated, serial integration tests using real Postgres and real HTTP, covering all six task operations and their principal failure cases."
+                ]
+            },
+            "priority": 5,
+            "references": [
+                "RQ-2",
+                "ADR-007",
+                "ADR-008"
+            ],
+            "status": "pending",
+            "title": "Prove the complete local behavior, durability, isolation, and reproducibility contract."
+        }
+    ]
+}

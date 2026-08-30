@@ -1,0 +1,119 @@
+{
+  "schema": "iao/prd/v1",
+  "ideaDigest": "sha256:05018944cccf1770f57de488ff0f3f859c7f51cffce9b988745c68aac68ab1d6",
+  "vision": "Give local unauthenticated HTTP clients a dependable Todo API whose task data survives API-only restarts and whose behavior can be verified reproducibly against real Postgres.",
+  "goals": [
+    {
+      "id": "G-1",
+      "statement": "Deliver a cohesive JSON HTTP API for creating, listing, filtering, completing, editing, and removing tasks."
+    },
+    {
+      "id": "G-2",
+      "statement": "Persist task id, title, and status in local Postgres and preserve them across API-only restarts."
+    },
+    {
+      "id": "G-3",
+      "statement": "Make local startup and verification reproducible, including automatic schema initialization and real HTTP/Postgres integration tests."
+    },
+    {
+      "id": "G-4",
+      "statement": "Keep the implementation maintainable through Vertical Slice Architecture, minimal shared code, input validation, and sanitized dependency failures."
+    }
+  ],
+  "successMetrics": [
+    {
+      "id": "M-1",
+      "goalId": "G-1",
+      "measure": "Supported task-management operations that have documented request, response, and Problem Details behavior",
+      "target": "6 of 6 operations implemented and covered by contract-level tests"
+    },
+    {
+      "id": "M-2",
+      "goalId": "G-2",
+      "measure": "Task records retained after stopping and restarting only the API process while Postgres remains available",
+      "target": "100% of verification runs retain id, title, and status for previously created tasks"
+    },
+    {
+      "id": "M-3",
+      "goalId": "G-3",
+      "measure": "Clean local environment verification flow using Docker Compose and the documented database connection configuration",
+      "target": "One command or documented command sequence passes pure unit tests and isolated serial HTTP/Postgres integration tests"
+    },
+    {
+      "id": "M-4",
+      "goalId": "G-4",
+      "measure": "Failure and validation cases exposed to clients without internal details",
+      "target": "All invalid-input and dependency-failure tests return stable Problem Details responses with no credentials, stack traces, or internal diagnostics"
+    }
+  ],
+  "nonGoals": [
+    "Frontend or user interface development",
+    "Users, authentication, authorization, or multi-tenant behavior",
+    "Cloud, production, or deployment operational support",
+    "Legacy or JSON-file data migration",
+    "Regulated-data handling or compliance claims"
+  ],
+  "scope": [
+    "A .NET/C# ASP.NET Core Web API for unauthenticated local HTTP clients",
+    "Six task operations: create, query/list, filter, complete, edit, and remove",
+    "Stable JSON responses and Problem Details responses for validation and sanitized failures",
+    "Postgres persistence with one Docker Compose local Postgres service and a persistent volume",
+    "Automatic local schema initialization and connection configuration through TODO_DB_CONNECTION with a documented local default",
+    "Vertical Slice Architecture with a minimal shared kernel and no generic Controller, Service, or Repository layers",
+    "Pure unit tests plus isolated, serial integration tests using real Postgres and real HTTP"
+  ],
+  "risks": [
+    {
+      "id": "R-1",
+      "description": "Local Postgres startup timing or connection configuration may make startup and tests flaky.",
+      "mitigation": "Use Docker Compose health/readiness checks, bounded retry behavior, a persistent volume, and a documented TODO_DB_CONNECTION default; keep integration tests isolated and serial.",
+      "severity": "high"
+    },
+    {
+      "id": "R-2",
+      "description": "Inconsistent validation or error payloads could make HTTP clients and tests depend on implementation details.",
+      "mitigation": "Define the JSON and Problem Details contract up front and cover success, invalid input, missing task, and dependency-failure cases in endpoint tests.",
+      "severity": "medium"
+    },
+    {
+      "id": "R-3",
+      "description": "Over-generalized abstractions could dilute vertical-slice cohesion and increase maintenance cost.",
+      "mitigation": "Keep each operation's request handling, validation, persistence interaction, and response mapping close to its slice; extract only genuinely shared kernel concerns.",
+      "severity": "medium"
+    },
+    {
+      "id": "R-4",
+      "description": "Configuration or database failures could accidentally disclose credentials or internal failure details.",
+      "mitigation": "Log and return sanitized errors, redact connection secrets, and test that external responses never contain credentials, stack traces, or provider internals.",
+      "severity": "high"
+    }
+  ],
+  "decisions": [
+    {
+      "id": "D-1",
+      "statement": "Use .NET/C#, ASP.NET Core, Postgres, and Docker Compose as the implementation baseline.",
+      "rationale": "This matches the accepted idea's required local technology and infrastructure constraints."
+    },
+    {
+      "id": "D-2",
+      "statement": "Use Vertical Slice Architecture with a minimal shared kernel and no generic Controller, Service, or Repository layers.",
+      "rationale": "The operation-oriented API benefits from cohesive slices and avoids abstractions that obscure task behavior."
+    },
+    {
+      "id": "D-3",
+      "statement": "Use real Postgres for integration tests and execute them in isolated, serial runs.",
+      "rationale": "Persistence behavior and restart durability are core product outcomes and cannot be established by mocks or in-memory storage alone."
+    },
+    {
+      "id": "D-4",
+      "statement": "Configure the database through TODO_DB_CONNECTION, documenting only a safe local default.",
+      "rationale": "This supports reproducible local setup without committing credentials or exposing them through the API."
+    },
+    {
+      "id": "D-5",
+      "statement": "Limit the product to greenfield local development and test use.",
+      "rationale": "The accepted idea explicitly excludes frontend, identity, cloud or production deployment, migration, and regulated-data claims."
+    }
+  ],
+  "openQuestions": []
+}

@@ -10,16 +10,12 @@ export agent Researcher {
         "${prompt}"
     ]
 
-    // Exposes the Wikipedia MCP server to the research agent for follow-up
-    // lookups when the supplied article needs additional context.
-    mcp_servers: [wikipedia]
-
     retry: {
         max_attempts: 2
         delay: 5s
     }
 
-    after: (mcp, tools, result) -> {
+    after: () -> {
         return ResearchResultParser.parse(result)
     }
 }

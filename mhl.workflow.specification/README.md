@@ -72,15 +72,76 @@ mhl lint .
 mhl run main.mh
 ```
 
-The `READY` verdict parks the run at `awaiting_approval`. Review the accepted
-documents, then create `.mhl/specification/approval.proposal.json` manually:
+The `READY` verdict parks the run at `awaiting_approval`. The approval is an
+intentional human action and is not created by Codex. Reproduce it as follows:
 
-```json
-{"decision":"approved","bundleDigest":"<current bundle digest>","rationale":"<human rationale>","approvedBy":"<person>","decidedAt":"<timestamp>"}
-```
+### Manual approval procedure
 
-Run it again, or use `mhl run main.mh --resume`, to validate the decision and
-publish. A `completed` or blocked run starts over on the next `mhl run`.
+1. Confirm that the run is waiting for approval:
+
+   ```bash
+   cat .mhl/specification/run.json
+   ```
+
+   The expected values are `"status": "awaiting_approval"` and
+   `"phase": "approve"`.
+
+2. Review the accepted documents before approving:
+
+   ```text
+   .mhl/specification/prd.accepted.json
+   .mhl/specification/srs.accepted.json
+   .mhl/specification/sdd.accepted.json
+   .mhl/specification/readiness.accepted.json
+   ```
+
+3. Calculate the current bundle digest. The flow hashes the accepted files in
+   this fixed order: `idea`, `prd`, `srs`, `sdd`, `readiness`.
+
+   ```bash
+   digest_of() {
+     shasum -a 256 ".mhl/specification/$1.accepted.json" \
+       | awk '{print "sha256:" $1}'
+   }
+
+   bundle_parts="$(digest_of idea)|$(digest_of prd)|$(digest_of srs)|$(digest_of sdd)|$(digest_of readiness)"
+   bundle_digest="$(printf '%s' "$bundle_parts" \
+     | shasum -a 256 \
+     | awk '{print "sha256:" $1}')"
+   printf '%s\n' "$bundle_digest"
+   ```
+
+   Do not edit the `*.accepted.json` files manually. If an accepted document
+   changes, calculate the digest again and use the new value.
+
+4. As the human approver, create
+   `.mhl/specification/approval.proposal.json` manually:
+
+   ```json
+   {
+     "decision": "approved",
+     "bundleDigest": "<digest printed above>",
+     "rationale": "<real reason for approving this specification>",
+     "approvedBy": "<person>",
+     "decidedAt": "<ISO-8601 timestamp>"
+   }
+   ```
+
+   `decision` must be exactly `approved` or `revise`; `bundleDigest` must match
+   the current accepted chain; and `rationale` cannot be empty.
+
+5. Resume the workflow:
+
+   ```bash
+   mhl run main.mh --resume
+   ```
+
+   A valid `approved` decision runs the final readiness gate and publishes to
+   `specs/active/`. A `revise` decision sends the run back to `review`; use the
+   same JSON shape with `"decision": "revise"` and explain the requested changes
+   in `rationale`.
+
+A `completed` or blocked run starts over on the next `mhl run`.
 
 ## Outputs
 

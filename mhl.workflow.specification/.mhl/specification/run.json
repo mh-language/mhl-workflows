@@ -1,0 +1,9 @@
+{
+  "run": {
+    "phase": "stop",
+    "recascades": 0,
+    "status": "completed",
+    "step": 5,
+    "terminalReason": null
+  }
+}

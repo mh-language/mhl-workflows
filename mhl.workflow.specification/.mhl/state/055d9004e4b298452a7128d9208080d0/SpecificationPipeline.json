@@ -1,0 +1,14 @@
+{
+  "pipeline": "SpecificationPipeline",
+  "last_step": "Approve",
+  "next_step": "",
+  "completed_steps": [
+    "Start",
+    "Approve"
+  ],
+  "variables": {
+    "__last_step": "Approve"
+  },
+  "saved_at": "2026-08-29T22:39:11.157072-03:00",
+  "ttl_seconds": 604800
+}

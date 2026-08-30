@@ -1,0 +1,13 @@
+{
+  "pipeline": "SpecificationPipeline",
+  "last_step": "Start",
+  "next_step": "Discover",
+  "completed_steps": [
+    "Start"
+  ],
+  "variables": {
+    "__last_step": "Start"
+  },
+  "saved_at": "2026-08-29T21:42:10.934523-03:00",
+  "ttl_seconds": 604800
+}

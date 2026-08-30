@@ -41,7 +41,7 @@ prompt ReplanPrompt(
 
 
 // Feature Cycle Pipeline
-loop pipeline FeatureCycle {
+loop workflow FeatureCycle {
 
     repeat: {
         stop_when: !store.has_pending_features()

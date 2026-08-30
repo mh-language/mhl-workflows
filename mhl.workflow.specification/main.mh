@@ -53,7 +53,7 @@ prompt ReviewPrompt(
 // (capped at two recascades); approve either publishes and completes, or routes
 // a "revise" decision back to review. Each documental phase retries in place on
 // an evaluator failure, up to SpecConfig.max_attempts().
-loop pipeline SpecificationPipeline {
+loop workflow SpecificationPipeline {
 
     repeat: {
         stop_when: store.is_terminal()
@@ -96,7 +96,7 @@ loop pipeline SpecificationPipeline {
 
         while (attempts < config.max_attempts() && accepted == false) {
             attempts = attempts + 1
-            log.info("[spec] discover attempt " + attempts + "/" + config.max_attempts())
+            log.info("[spec] discover attempt ${attempts}/${config.max_attempts()}")
 
             adapter.execute(query: DiscoverPrompt(
                 sources_block: sources.block(),
@@ -106,7 +106,7 @@ loop pipeline SpecificationPipeline {
 
             var idea = store.read_proposal("idea")
             var has = sources.has_sources()
-            var source = if (has) "specs/sources (" + sources.files_csv() + ")" else "driver"
+            var source = if (has) "specs/sources (${sources.files_csv()})" else "driver"
             var source_digest = if (has) sources.digest() else "none"
 
             var res = evaluator.evaluate_idea(idea, source, source_digest)
@@ -122,7 +122,7 @@ loop pipeline SpecificationPipeline {
         }
 
         if (accepted == false) {
-            store.terminate("needs_human_decision", "idea did not pass IdeaEvaluator after " + config.max_attempts() + " attempts")
+            store.terminate("needs_human_decision", "idea did not pass IdeaEvaluator after ${config.max_attempts()} attempts")
             break "discover exhausted retries"
         }
         // falls through to Product
@@ -136,7 +136,7 @@ loop pipeline SpecificationPipeline {
 
         while (attempts < config.max_attempts() && accepted == false) {
             attempts = attempts + 1
-            log.info("[spec] product attempt " + attempts + "/" + config.max_attempts())
+            log.info("[spec] product attempt ${attempts}/${config.max_attempts()}")
 
             var idea_digest = store.accepted_digest("idea")
             adapter.execute(query: ProductPrompt(
@@ -160,7 +160,7 @@ loop pipeline SpecificationPipeline {
         }
 
         if (accepted == false) {
-            store.terminate("needs_human_decision", "PRD did not pass PrdEvaluator after " + config.max_attempts() + " attempts")
+            store.terminate("needs_human_decision", "PRD did not pass PrdEvaluator after ${config.max_attempts()} attempts")
             break "product exhausted retries"
         }
         // falls through to Analysis
@@ -174,7 +174,7 @@ loop pipeline SpecificationPipeline {
 
         while (attempts < config.max_attempts() && accepted == false) {
             attempts = attempts + 1
-            log.info("[spec] analysis attempt " + attempts + "/" + config.max_attempts())
+            log.info("[spec] analysis attempt ${attempts}/${config.max_attempts()}")
 
             var prd_digest = store.accepted_digest("prd")
             adapter.execute(query: AnalysisPrompt(
@@ -202,7 +202,7 @@ loop pipeline SpecificationPipeline {
         }
 
         if (accepted == false) {
-            store.terminate("needs_human_decision", "SRS did not pass SrsEvaluator after " + config.max_attempts() + " attempts")
+            store.terminate("needs_human_decision", "SRS did not pass SrsEvaluator after ${config.max_attempts()} attempts")
             break "analysis exhausted retries"
         }
         // falls through to Design
@@ -216,7 +216,7 @@ loop pipeline SpecificationPipeline {
 
         while (attempts < config.max_attempts() && accepted == false) {
             attempts = attempts + 1
-            log.info("[spec] design attempt " + attempts + "/" + config.max_attempts())
+            log.info("[spec] design attempt ${attempts}/${config.max_attempts()}")
 
             var srs_digest = store.accepted_digest("srs")
             var src_digest = sources.digest()
@@ -249,7 +249,7 @@ loop pipeline SpecificationPipeline {
         }
 
         if (accepted == false) {
-            store.terminate("needs_human_decision", "SDD did not pass SddEvaluator after " + config.max_attempts() + " attempts")
+            store.terminate("needs_human_decision", "SDD did not pass SddEvaluator after ${config.max_attempts()} attempts")
             break "design exhausted retries"
         }
         // falls through to Review
@@ -263,7 +263,7 @@ loop pipeline SpecificationPipeline {
 
         while (attempts < config.max_attempts() && settled == false) {
             attempts = attempts + 1
-            log.info("[spec] review attempt " + attempts + "/" + config.max_attempts())
+            log.info("[spec] review attempt ${attempts}/${config.max_attempts()}")
 
             adapter.execute(query: ReviewPrompt(
                 srs_path: store.accepted_path("srs"),
@@ -308,7 +308,7 @@ loop pipeline SpecificationPipeline {
         }
 
         if (settled == false) {
-            store.terminate("needs_human_decision", "readiness verdict did not pass ReadinessEvaluator after " + config.max_attempts() + " attempts")
+            store.terminate("needs_human_decision", "readiness verdict did not pass ReadinessEvaluator after ${config.max_attempts()} attempts")
         }
         if (store.is_terminal()) { break "review terminal" }
         // falls through to Approve
@@ -320,7 +320,8 @@ loop pipeline SpecificationPipeline {
         var decision = store.read_proposal("approval")
 
         if (decision == null) {
-            log.info("[spec] awaiting human approval; write " + store.proposal_path("approval") + " and run again.")
+            const proposal_path = store.proposal_path("approval")
+            log.info("[spec] awaiting human approval; write ${proposal_path} and run again.")
             break "approval file missing"
         }
 

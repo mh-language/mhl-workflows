@@ -2,7 +2,7 @@ use {ResearchMemory as memory} from "modules/tools/research.tool.mh"
 use {Researcher as researcher} from "modules/agents/researcher.agent.mh"
 
 // The server is started by MHL on demand through stdio.
-mcp_server wikipedia {
+extension mcp wikipedia {
     transport: "stdio"
     protocol: "2025-06-18"
     command: "docker"

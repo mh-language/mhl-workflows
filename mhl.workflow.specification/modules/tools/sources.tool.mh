@@ -50,7 +50,7 @@ export tool Sources {
         }
 
         SourcesMemory.set("bundle", { files: names, content: content })
-        log.info("[spec] ingested " + names.size() + " source file(s) into the run.")
+        log.info("[spec] ingested ${names.size()} source file(s) into the run.")
         return true
     }
 

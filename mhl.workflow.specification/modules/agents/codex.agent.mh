@@ -6,7 +6,8 @@
 export agent Codex {
     engine: "cli/codex"
     command: "codex"
-    log: ".mhl/logs/codex.log"
+    log: ".mhl/logs/codex_${context.session_id}.log" 
+    //log: ".mhl/logs/codex.log"
     args: [
         "exec",
         "--approve-for-me",
@@ -20,7 +21,7 @@ export agent Codex {
         delay: 5s
     }
 
-    after: (mcp, tools, result) -> {
+    after: () -> {
         return CodexResultParser.parse(result)
     }
 }
