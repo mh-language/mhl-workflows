@@ -1,0 +1,15 @@
+{
+  "pipeline": "RelatorioDeBuild",
+  "last_step": "Preparar",
+  "next_step": "Verificacoes",
+  "completed_steps": [
+    "Preparar"
+  ],
+  "variables": {
+    "__last_step": "Preparar",
+    "projeto": "meu projeto",
+    "resumo": "Projeto: meu projeto"
+  },
+  "saved_at": "2026-09-02T23:23:34.768929-03:00",
+  "ttl_seconds": 0
+}

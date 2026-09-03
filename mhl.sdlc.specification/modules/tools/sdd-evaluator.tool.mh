@@ -1,0 +1,120 @@
+import { SpecEvaluatorCommon as common } from "spec-evaluator-common.tool.mh"
+
+export tool SddEvaluator {
+    schema() : string -> "iao/sdd/v1"
+
+    evaluate(sdd: object, current_srs_digest: string, requirement_ids: any[], current_source_digest: string, current_source_files: any[]) : object -> {
+        if (sdd == null) {
+            return common.result(["SDD_PROPOSAL_MISSING: the SDD proposal is missing or not valid JSON"])
+        }
+        if (!is_object(sdd)) {
+            return common.result(["SDD_PROPOSAL_INVALID: the SDD proposal must be a JSON object"])
+        }
+        var v = []
+        v += common.array_type_violation(sdd?.adrs, "adrs", "SDD_ADRS_INVALID")
+        v += common.array_type_violation(sdd?.controls, "controls", "SDD_CONTROLS_INVALID")
+        if (common.str(sdd?.schema) != self.schema()) {
+            v += ["SDD_SCHEMA_UNKNOWN: expected schema " + self.schema() + ", got " + common.str(sdd?.schema)]
+        }
+
+        if (current_srs_digest == "" || common.str(sdd?.srsDigest) != current_srs_digest) {
+            v += ["SDD_SRS_DIGEST_STALE: sdd.srsDigest " + common.str(sdd?.srsDigest) + " does not match the current accepted SRS digest " + current_srs_digest]
+        }
+
+        v = common.dup_violations(v, common.ids_of(common.list(sdd?.adrs)), "SDD_ADR_ID_DUPLICATE", "ADR")
+        v += common.missing_id_violations(sdd?.adrs, "SDD_ADR_ID_MISSING", "ADR")
+        v += common.missing_id_violations(sdd?.controls, "SDD_CONTROL_ID_MISSING", "control")
+        v = common.dup_violations(v, common.ids_of(common.list(sdd?.controls)), "SDD_CONTROL_ID_DUPLICATE", "control")
+        var known = common.list(requirement_ids)
+        var allocated = []
+        for (var a in common.list(sdd?.adrs)) {
+            for (var rid in common.list(a?.requirementIds)) allocated += [rid]
+        }
+        for (var rid in known) {
+            if (!allocated.contains(rid)) {
+                v += ["SDD_REQUIREMENT_NOT_ALLOCATED: requirement ${rid} is not allocated to any component/ADR"]
+            }
+        }
+        for (var a in common.list(sdd?.adrs)) {
+            var aid = common.str(a?.id)
+            if (common.blank(a?.title) || common.blank(a?.decision) || common.blank(a?.rationale)) {
+                v += ["SDD_ADR_TEXT_MISSING: ADR " + aid + " has an empty title, decision or rationale"]
+            }
+            if (!is_array(a?.requirementIds)) v += ["SDD_ADR_REQUIREMENT_IDS_INVALID: ADR " + aid + " requirementIds must be an array"]
+            for (var rid in common.list(a?.requirementIds)) {
+                if (!known.contains(rid)) {
+                    v += ["SDD_ADR_REQUIREMENT_DANGLING: ADR ${aid} references unknown requirement ${rid}"]
+                }
+            }
+        }
+        for (var c in common.list(sdd?.controls)) {
+            var cid = common.str(c?.id)
+            if (common.blank(c?.name) || common.blank(c?.description)) {
+                v += ["SDD_CONTROL_TEXT_MISSING: control " + cid + " has an empty name or description"]
+            }
+            if (!is_array(c?.requirementIds)) v += ["SDD_CONTROL_REQUIREMENT_IDS_INVALID: control " + cid + " requirementIds must be an array"]
+            for (var rid in common.list(c?.requirementIds)) {
+                if (!known.contains(rid)) {
+                    v += ["SDD_CONTROL_REQUIREMENT_DANGLING: control ${cid} references unknown requirement ${rid}"]
+                }
+            }
+        }
+
+        // designContent is free-form Markdown the reviewer reads in full. The
+        // structured adrs/controls above are checked against the accepted SRS ids,
+        // but the prose is not — and a design recovered from source material tends
+        // to keep the SOURCE identifier scheme (zero-padded RF-001, plus RNF-*,
+        // RN-*, SEC-* families and ADR-010) instead of the regenerated SRS one.
+        // The review phase then rejects the SDD and recascades the whole run back
+        // to design. Catch it here so it costs a cheap in-phase retry instead.
+        var dc = common.str(sdd?.designContent)
+        if (dc != "") {
+            // zero-padded requirement / ADR tokens: RF-01, RF-001, ADR-010, ...
+            var pad_families = ["RF", "RQ", "QR", "RNF", "NFR", "RN", "SEC", "REQ", "AC", "ADR"]
+            for (var fam in pad_families) {
+                var padded = dc.contains(fam + "-00")
+                if (!padded) {
+                    for (var d in ["1", "2", "3", "4", "5", "6", "7", "8", "9"]) {
+                        if (dc.contains(fam + "-0" + d)) padded = true
+                    }
+                }
+                if (padded) {
+                    v += ["SDD_DESIGN_CONTENT_ID_PADDED: designContent uses zero-padded identifiers like " + fam + "-0NN; the accepted SRS requirements and this SDD's ADR ids are never zero-padded (e.g. " + fam + "-1). Rewrite the prose, the requirement-allocation table and any traceability section to use the exact ids."]
+                }
+            }
+            // requirement families named in the prose that the accepted SRS does
+            // not define at all (it folds every quality / rule / security item
+            // into RF-* / RQ-*, so RNF-*, RN-*, SEC-* prose references dangle).
+            var watch_families = ["RNF", "NFR", "RN", "SEC", "REQ"]
+            for (var wf in watch_families) {
+                if (dc.contains(wf + "-")) {
+                    var backed = false
+                    for (var rid in known) {
+                        if (common.str(rid).contains(wf + "-")) backed = true
+                    }
+                    if (!backed) {
+                        v += ["SDD_DESIGN_CONTENT_ID_FAMILY_UNKNOWN: designContent references " + wf + "-* identifiers, but the accepted SRS defines no requirement with that prefix; map every requirement reference in the prose to a real SRS id (functional RF-* or quality RQ-*)."]
+                    }
+                }
+            }
+        }
+
+        if (current_source_digest != "" && current_source_digest != "none") {
+            v += common.array_type_violation(sdd?.sourceFiles, "sourceFiles", "SDD_SOURCE_FILES_INVALID")
+            if (common.blank(sdd?.sourceDigest)) {
+                v += ["SDD_SOURCE_DIGEST_MISSING: sourceDigest is required when an accepted source bundle exists"]
+            } else if (common.str(sdd?.sourceDigest) != current_source_digest) {
+                v += ["SDD_SOURCE_DIGEST_STALE: sdd.sourceDigest " + common.str(sdd?.sourceDigest) + " does not match the current accepted source digest " + current_source_digest]
+            }
+            if (common.list(sdd?.sourceFiles).is_empty()) {
+                v += ["SDD_SOURCE_FILES_MISSING: sourceFiles is required when an accepted source bundle exists"]
+            } else if (!common.list(sdd?.sourceFiles).deep_equal(common.list(current_source_files))) {
+                v += ["SDD_SOURCE_FILES_STALE: sdd.sourceFiles does not match the current accepted source bundle"]
+            }
+            if (common.blank(sdd?.designContent)) {
+                v += ["SDD_DESIGN_CONTENT_MISSING: designContent is required when an accepted source bundle exists"]
+            }
+        }
+        return common.result(v)
+    }
+}

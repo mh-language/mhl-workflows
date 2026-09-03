@@ -1,0 +1,48 @@
+// Content digests for the Specification flow.
+//
+// dotnet/Flows.Specification computes "sha256:<hex>" over the canonical
+// (source-generated, sorted-key) serialization of every accepted document, and
+// downstream phases embed the parent digest so a stale parent is detected
+// mechanically. MHL has no crypto builtin, so this tool shells out to
+// sha256sum / shasum. json.stringify already emits object keys in sorted order,
+// so the same value always yields the same digest regardless of on-disk
+// formatting — the property the freshness checks depend on.
+export tool Digest {
+    // Session-scoped scratch dir so two concurrent runs never race on the same
+    // .digest.tmp. Falls back to the flat dir when there is no `context:` block
+    // in scope (e.g. a direct `mhl test`).
+    dir() : string -> {
+        try {
+            var s = context.session_id
+            if (s != null && s != "") { return ".mhl/specification/" + s }
+        } catch (e) {
+            return ".mhl/specification"
+        }
+        return ".mhl/specification"
+    }
+
+    // Digest of a file already on disk.
+    file(path: string) : string -> {
+        var script = "set -o pipefail; (command -v sha256sum >/dev/null 2>&1 && sha256sum \"$0\" || shasum -a 256 \"$0\") | cut -d ' ' -f1"
+        var r = cmd.exec(["bash", "-lc", script, path], timeout: 30s)
+        
+        if (r.exit_code != 0) {
+            fail("[spec] digest failed for ${path}: ${r.stderr}")
+        }
+        
+        return "sha256:" + r.stdout.trim()
+    }
+
+    // Digest of an arbitrary string (staged through a temp file so content of any
+    // size is handled without argv limits).
+    text(content: string) : string -> {
+        var tmp = self.dir() + "/.digest.tmp"
+        fs.write(tmp, content)
+        var result = self.file(tmp)
+        if (fs.exists(tmp)) { fs.delete(tmp) }
+        return result
+    }
+
+    // Digest of a value under the same canonicalization the accepted store uses.
+    of(value: any) : string -> self.text(json.stringify(value))
+}

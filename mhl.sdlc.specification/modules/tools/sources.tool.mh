@@ -1,0 +1,90 @@
+import { SpecConfig as config } from "spec-config.tool.mh"
+import { Digest as digest } from "digest.tool.mh"
+
+// The raw source material ingested once at `start` — "ideia curta ou documentos
+// em pasta de fontes" (blueprint 0004 §2). Captured up front and persisted so
+// `discover` can ground the idea proposal in real, human-curated material
+// (product docs, transcripts, expert notes, regulations) instead of the driving
+// model inventing an idea from nothing, and so a retry after a context reset can
+// reattach the same material.
+// Session-scoped, like SpecStore's document directory — a `memory` path is
+// `${...}`-interpolated the same way an agent `log:` path is, so every run gets
+// its own sources file and two concurrent runs never clobber each other.
+memory SourcesMemory { type: "json" path: ".mhl/specification/${context.session_id}/sources.accepted.json" }
+
+export tool Sources {
+    // Read + concatenate every file directly inside `folder`. No sources folder
+    // (or an empty one) is fine — discover still works, grounded in whatever the
+    // human told the driver in conversation.
+    ingest(folder: string) : boolean -> {
+        var entries = []
+        try {
+            if (!fs.exists(folder)) {
+                log.info("[spec] no sources folder at ${folder}; discover will rely on the conversation.")
+                return false
+            }
+            entries = fs.list(folder)
+        } catch (e) {
+            log.warn("[spec] could not list ${folder}: ${e}")
+            return false
+        }
+
+        var files = entries
+            .filter((p) -> !p.ends_with("/.gitkeep") && !p.ends_with(".gitkeep"))
+            .sort_by((p) -> p)
+        if (files.is_empty()) {
+            log.info("[spec] sources folder ${folder} is empty.")
+            return false
+        }
+
+        var names = []
+        var content = ""
+        for (var path in files) {
+            var parts = path.split("/")
+            var name = parts[parts.size() - 1]
+            names = names + [name]
+            content = content + "## " + name + "\n" + fs.read(path) + "\n\n"
+        }
+
+        var limit = config.docs_max_chars()
+        if (content.size() > limit) {
+            content = content.substring(0, limit)
+            log.warn("[spec] sources content truncated to ${limit} characters.")
+        }
+
+        SourcesMemory.set("bundle", { files: names, content: content })
+        log.info("[spec] ingested ${names.size()} source file(s) into the run.")
+        return true
+    }
+
+    bundle() : object -> SourcesMemory.get("bundle", { files: [], content: "" })
+
+    has_sources() : boolean -> self.bundle().files.size() > 0
+
+    files_csv() : string -> {
+        var csv = ""
+        for (var f in self.bundle().files) {
+            csv = if (csv == "") f else csv + ", " + f
+        }
+        return csv
+    }
+
+    // Provenance digest recorded on the idea proposal (IdeaEvaluator: "fonte e
+    // digest registrados") and re-checked on the SDD when source-backed design
+    // context exists.
+    digest() : string -> {
+        if (!self.has_sources()) { return "none" }
+        return digest.of(self.bundle())
+    }
+
+    // Prompt-embeddable block. Reattached on every discover/design turn so a
+    // driver that dropped the material from context does not fall back to
+    // inventing an unrelated idea just because this is a retry.
+    block() : string -> {
+        var b = self.bundle()
+        if (b.files.size() == 0) {
+            return "No sources folder was found (or it was empty). Ask the human operator for the idea, problem, users and constraints in this conversation, then frame it below."
+        }
+        return "<sources files=\"" + self.files_csv() + "\">\n" + b.content + "\n</sources>"
+    }
+}

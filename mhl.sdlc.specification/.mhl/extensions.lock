@@ -1,0 +1,9 @@
+{
+  "extensions": {
+    "dev.mhl.store-postgres": {
+      "version": "0.1.0",
+      "sha256": "57e28333d39a9c60c130bd064baebcfa3ae6610afa640c380d7c85b4e597d5cf",
+      "source": "https://github.com/mh-language/mhl-extensions/releases/download/v0.1.0/mhl-store-postgres.tar.gz"
+    }
+  }
+}

@@ -1,0 +1,37 @@
+export prompt DiscoverPrompt(
+    sources_block: string,
+    proposal_path: string,
+    schema: string,
+    retry_block: string) from "discover.prompt.md"
+
+export prompt ProductPrompt(
+    idea_path: string,
+    idea_digest: string,
+    proposal_path: string,
+    schema: string,
+    retry_block: string) from "product.prompt.md"
+
+export prompt AnalysisPrompt(
+    prd_path: string,
+    prd_digest: string,
+    proposal_path: string,
+    schema: string,
+    retry_block: string) from "analysis.prompt.md"
+
+export prompt DesignPrompt(
+    srs_path: string,
+    srs_digest: string,
+    sources_block: string,
+    source_digest: string,
+    source_files: string,
+    proposal_path: string,
+    schema: string,
+    retry_block: string) from "design.prompt.md"
+
+export prompt ReviewPrompt(
+    idea_path: string,
+    prd_path: string,
+    srs_path: string,
+    sdd_path: string,
+    proposal_path: string,
+    retry_block: string) from "review.prompt.md"

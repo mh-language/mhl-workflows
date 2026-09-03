@@ -1,0 +1,15 @@
+import { Codex as codex } from "codex.agent.mh"
+
+export tool CodexAdapter {
+    // Runs a rendered prompt through the Codex agent. Returns the last agent
+    // message, or null on failure — the caller then re-reads the proposal file
+    // from disk and lets the evaluator decide.
+    execute(query) -> {
+        try {
+            return codex.run(prompt: query)
+        } catch (e) {
+            log.error("[spec] failed to execute codex query: ${e}")
+            return null
+        }
+    }
+}

@@ -1,0 +1,64 @@
+import { SpecEvaluatorCommon as common } from "spec-evaluator-common.tool.mh"
+
+export tool PrdEvaluator {
+    schema() : string -> "iao/prd/v1"
+
+    evaluate(prd: object, current_idea_digest: string) : object -> {
+        if (prd == null) {
+            return common.result(["PRD_PROPOSAL_MISSING: the PRD proposal is missing or not valid JSON"])
+        }
+        if (!is_object(prd)) {
+            return common.result(["PRD_PROPOSAL_INVALID: the PRD proposal must be a JSON object"])
+        }
+
+        var v = []
+        v += common.array_type_violation(prd?.goals, "goals", "PRD_GOALS_INVALID")
+        v += common.array_type_violation(prd?.successMetrics, "successMetrics", "PRD_METRICS_INVALID")
+        v += common.array_type_violation(prd?.nonGoals, "nonGoals", "PRD_NON_GOALS_INVALID")
+        v += common.array_type_violation(prd?.scope, "scope", "PRD_SCOPE_INVALID")
+        v += common.array_type_violation(prd?.risks, "risks", "PRD_RISKS_INVALID")
+        v += common.array_type_violation(prd?.decisions, "decisions", "PRD_DECISIONS_INVALID")
+        v += common.array_type_violation(prd?.openQuestions, "openQuestions", "PRD_OPEN_QUESTIONS_INVALID")
+        if (common.str(prd?.schema) != self.schema()) {
+            v += ["PRD_SCHEMA_UNKNOWN: expected schema " + self.schema() + ", got " + common.str(prd?.schema)]
+        }
+
+        if (current_idea_digest == "" || common.str(prd?.ideaDigest) != current_idea_digest) {
+            v += ["PRD_IDEA_DIGEST_STALE: prd.ideaDigest " + common.str(prd?.ideaDigest) + " does not match the current accepted idea digest " + current_idea_digest]
+        }
+        
+        v += common.missing_id_violations(prd?.goals, "PRD_GOAL_ID_MISSING", "goal")
+        v += common.missing_id_violations(prd?.successMetrics, "PRD_METRIC_ID_MISSING", "metric")
+        v += common.missing_id_violations(prd?.risks, "PRD_RISK_ID_MISSING", "risk")
+        v += common.missing_id_violations(prd?.decisions, "PRD_DECISION_ID_MISSING", "decision")
+        v = common.dup_violations(v, common.ids_of(common.list(prd?.goals)), "PRD_GOAL_ID_DUPLICATE", "goal")
+        v = common.dup_violations(v, common.ids_of(common.list(prd?.successMetrics)), "PRD_METRIC_ID_DUPLICATE", "metric")
+        v = common.dup_violations(v, common.ids_of(common.list(prd?.risks)), "PRD_RISK_ID_DUPLICATE", "risk")
+        v = common.dup_violations(v, common.ids_of(common.list(prd?.decisions)), "PRD_DECISION_ID_DUPLICATE", "decision")
+        
+        if (common.list(prd?.goals).is_empty()) v += ["PRD_GOALS_EMPTY: at least one goal is required"]
+        if (common.list(prd?.nonGoals).is_empty()) v += ["PRD_NON_GOALS_EMPTY: at least one non-goal is required"]
+        if (common.list(prd?.scope).is_empty()) v += ["PRD_SCOPE_EMPTY: at least one scope entry is required"]
+        if (common.list(prd?.successMetrics).is_empty()) v += ["PRD_METRICS_EMPTY: at least one success metric is required"]
+
+        for (var m in common.list(prd?.successMetrics)) {
+            var measure = common.str(m?.measure).trim()
+            var target = common.str(m?.target).trim()
+            if (measure == "" || target == "" || measure.to_lower() == target.to_lower()) {
+                v += ["PRD_METRIC_MEASURE_TARGET_NOT_SEPARATE: metric " + common.str(m?.id) + " must have a measure and a target that are both present and distinct"]
+            }
+            if (!common.ids_of(common.list(prd?.goals)).contains(m?.goalId)) {
+                v += ["PRD_METRIC_GOAL_REFERENCE_DANGLING: metric " + common.str(m?.id) + " references unknown goal " + common.str(m?.goalId)]
+            }
+        }
+
+        var blocking = []
+        for (var q in common.list(prd?.openQuestions)) if (q?.blocking == true) blocking += [q?.id]
+
+        if (!blocking.is_empty()) {
+            v += ["PRD_OPEN_QUESTION_BLOCKING: unresolved blocking open question(s): " + blocking.join(", ")]
+        }
+
+        return common.result(v)
+    }
+}

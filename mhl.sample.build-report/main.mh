@@ -1,0 +1,88 @@
+// ─────────────────────────────────────────────────────────────────────────────
+// Sample didático de MHL: uma pipe com poucos steps, usando `spawn` e `timeout`.
+//
+// Cenário: gerar um "relatório de build" de um projeto. Três checagens rodam
+// em paralelo dentro de um step (spawn/wait) e o passo final tem um limite de
+// tempo próprio (step-level `timeout`).
+//
+// Rodar:
+//   mhl lint .
+//   mhl run main.mh --input projeto=checkout-api
+//
+// Se um step estourar o tempo, ele se encerra sozinho; retome com:
+//   mhl run main.mh --resume
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ── Agents ───────────────────────────────────────────────────────────────────
+// Um agent é só um processo: recebe um `prompt` e devolve o stdout. Aqui usamos
+// `sh` para não depender de nenhuma CLI de IA — o `sleep` simula trabalho real.
+
+agent Lint {
+    command: "sh"
+    args: ["-c", "echo 'lint: 0 erros, 3 avisos'"]
+}
+
+agent Testes {
+    command: "sh"
+    args: ["-c", "sleep 2; echo 'testes: 42 passaram'"]
+}
+
+agent Build {
+    command: "sh"
+    args: ["-c", "sleep 1; echo 'build: artefato empacotado'"]
+}
+
+// ── Pipeline ─────────────────────────────────────────────────────────────────
+// `pipeline` executa os steps na ordem declarada (sem `goto`). As `var` de
+// pipeline são compartilhadas: um step escreve, os seguintes leem.
+
+pipeline RelatorioDeBuild {
+    description: "Preparar -> Verificacoes (paralelo) -> Publicar (com timeout)"
+
+    input projeto: string
+
+    // Teto de chamadas de agent simultâneas em toda a run.
+    spawn: { max_concurrency: 3 }
+
+    var resumo = ""
+
+    // Step 1 — trabalho sequencial simples.
+    step Preparar {
+        log.info("[build] preparando relatório do projeto '${projeto}'")
+        resumo = "Projeto: ${projeto}"
+    }
+
+    // Step 2 — paralelismo DENTRO de um step.
+    // `spawn` dispara a chamada do agent em segundo plano e devolve um handle;
+    // `wait` junta os handles. `timeout:` limita a espera do grupo inteiro.
+    step Verificacoes {
+        spawn l = Lint.run(prompt: projeto) for i in ["teste", "lint", "build"]  // exemplo de `for` para gerar múltiplos handles
+        //spawn t = Testes.run(prompt: projeto)
+        //spawn b = Build.run(prompt: projeto)
+
+        wait l
+
+        // wait-all: se um agent falhasse, o step falharia (fail-fast).
+        // Use `on_error: "collect"` para seguir mesmo com falha e inspecionar
+        // `.ok` / `.error` de cada handle.
+        //wait l, t, b timeout: 10s
+
+        log.info("[build] lint   => ${l[0].result} (${l})")
+        //log.info("[build] testes => ${t.result}")
+        //log.info("[build] build  => ${b.result}")
+
+        resumo = resumo
+            + "\n- " + l.result
+            //+ "\n- " + t.result
+            //+ "\n- " + b.result
+    }
+
+    // Step 3 — `timeout` de step: orçamento de tempo do passo inteiro.
+    // Se o corpo passar de 3s, o step se auto-encerra e a run fica retomável
+    // (`mhl run main.mh --resume` re-entra no step com um orçamento novo).
+    step Publicar timeout 3s {
+        var destino = cmd.exec(["sh", "-c", "echo relatorios/${projeto}.md"]).stdout
+        log.info("[build] publicando em ${destino}")
+        log.info("[build] resumo final:\n${resumo}")
+    }
+}
