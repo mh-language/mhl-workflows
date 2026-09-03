@@ -56,6 +56,7 @@ pipeline RelatorioDeBuild {
     // `spawn` dispara a chamada do agent em segundo plano e devolve um handle;
     // `wait` junta os handles. `timeout:` limita a espera do grupo inteiro.
     step Verificacoes {
+
         spawn l = Lint.run(prompt: projeto) for i in ["teste", "lint", "build"]  // exemplo de `for` para gerar múltiplos handles
         //spawn t = Testes.run(prompt: projeto)
         //spawn b = Build.run(prompt: projeto)
